@@ -443,6 +443,20 @@ start and end.
   substring sweep.
 - **It will not fix Buddy** — QA-6: zero approved paths on all six roots.
 
+## Final regression verification (orchestrator, 2026-09-09)
+
+The pytest cache is cumulative across targeted runs, so it listed three sprint
+files as failing even though they pass in isolation. That is exactly the shape
+of the order-dependence QA found in ~18 of the baseline failures, so it was
+resolved rather than assumed: cache cleared, clean full-suite run with
+`-p no:cacheprovider`, failure list captured directly.
+
+**Result: 60 failures/errors, NONE from any sprint file.** The cache entries
+were stale. No order-dependence was introduced. This is the fourth independent
+confirmation the failing set matches baseline `8cb5760` — orchestrator per-file
+comparison, builder scratch-worktree comparison, QA isolation comparison, and
+this run.
+
 ## Skipped phases
 
 | Phase | Reason |
