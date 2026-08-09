@@ -2,7 +2,7 @@
 
 **Sprint id:** 2026-08-08-arail2-declarative-persistence
 **Branch:** `qukaizen/arail-2-declarative-persistence-819030`
-**Status:** Phases 1–3 complete; integration (Tier 1 of INTEGRATION.md) not started.
+**Status:** shipped — [PR #175](https://github.com/cdarnell/qukaizen-arail/pull/175). Tier 1.2 shipped in the successor sprint `2026-08-08-arail2-tier1-integration`; Tier 1.1 and the cutover were deferred/rejected there on evidence.
 
 ## Artifacts
 
