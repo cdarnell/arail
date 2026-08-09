@@ -41,7 +41,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | build6 | builder | BUILD_LOG.md | done (ASK-1, ASK-2, invariant docs) | 2026-08-08T23:22Z | 2026-08-08T23:45Z | 154 targeted tests |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | done | 2026-08-08T23:47Z | 2026-09-09T00:18Z | **FAIL** (QA-5) |
-| build7 | builder | BUILD_LOG.md | in_progress (QA-5) | 2026-09-09T00:20Z | — | — |
+| build7 | builder | BUILD_LOG.md | done (QA-4/QA-5) | 2026-09-09T00:20Z | 2026-09-09T00:29Z | 11/11 green |
+| test2 | qa | TEST_REPORT.md | in_progress (re-verify) | 2026-09-09T00:31Z | — | — |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log
