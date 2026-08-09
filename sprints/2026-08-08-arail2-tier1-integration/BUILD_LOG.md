@@ -1111,3 +1111,157 @@ degraded-code cross-root documentation test.
 - (this commit) — `_initialized` → `_initialized_roots` (per-root,
   build=True-only guard), `_reset_for_tests` updated, new test file, this
   BUILD_LOG entry.
+
+# Build6: REVIEW4.md WEAK_PASS remediation (ASK-1, ASK-2, documentation)
+
+Two required fixes plus one documentation task, no fifth full review
+planned — QA is next.
+
+## ASK-1: `_pkb_root_cache` set outside the `if build:` guard
+
+**Fix.** Moved `_pkb_root_cache = root` inside `ensure_ready`'s
+`if build:` block (it was one line below the ORCH-1 per-root guard from
+Build5, still unconditional). Confirmed via grep that within
+`ensure_ready`, `_pkb_root_cache` is now write-only — the function never
+reads it, so there was no read-side behavior to preserve or break by
+gating the write.
+
+**Test.** Added three tests to
+`tests/test_ensure_ready_build_isolation.py`:
+- `test_readonly_call_does_not_redirect_pkb_root_cache` — build A, then
+  read-only-check B, assert the cache still points at A.
+- `test_readonly_call_on_same_root_does_not_disturb_cache` — plants a
+  sentinel object in the cache slot, calls `ensure_ready(root, build=False)`
+  on the SAME root, asserts the sentinel is untouched (proves `build=False`
+  doesn't even no-op-write its own root's value).
+- `test_cross_world_contamination_probe` — QA attack-list item 8, the
+  reviewer's own suggested reproduction verbatim: `ensure_ready(A,
+  build=True)`, `schedule_upsert` a new file under A with no explicit
+  `pkb_root`, `ensure_ready(B, build=False)` in between, `flush_now()`,
+  assert the row landed in A's table and that B's `.cache/lancedb` was
+  never even created.
+
+`tests/test_ensure_ready_build_isolation.py`: 10 tests (was 7), all
+passing.
+
+## ASK-2: PID-heuristic stale-lock recovery → `fcntl.flock`
+
+**Fix.** Deleted `_read_lock_pid`, `_pid_alive`, and `_ReembedLock._is_stale`
+entirely from `src/arail/pkb_reembed.py`. `_ReembedLock.acquire()` now
+opens the lock file with `os.open(path, O_CREAT | O_RDWR)` and calls
+`fcntl.flock(fd, LOCK_EX | LOCK_NB)`; an `OSError` from that call raises
+`ReembedLocked` (same exception type, same exit-1/English-message/
+no-traceback contract `main()` already provided). PID is still written
+into the file after acquiring, but purely for human inspection —
+`acquire()`/`release()` never read it back or branch on it.
+
+**Design decision beyond the literal instruction: `release()` no longer
+unlinks the lock file.** The reviewer's instruction was "replace the
+heuristic with `fcntl.flock`" — it didn't specify whether `release()`
+should still unlink. I determined unlinking is actively unsafe once
+`flock` is the sole exclusion mechanism: if process A holds the flock and
+process B calls `release()` and unlinks the path (e.g. a bug, or a race
+during shutdown), a third process C opening the same path with `O_CREAT`
+gets a *fresh inode* and can acquire a lock on it immediately — C now
+believes it holds "the" lock while A still holds a lock on the old,
+orphaned inode. Two processes proceed simultaneously: the exact defect
+class (broken mutual exclusion) this whole remediation exists to close.
+The fix: never unlink in `release()`; the lock file persists harmlessly
+under `.cache/` (already git-ignored, already excluded from PKB indexing)
+for the life of the PKB root. Documented in `_ReembedLock`'s class
+docstring so a future editor doesn't "fix" this back in.
+
+**Operator-facing behavior preserved, verified:**
+- Loser still exits 1 with an English message, no Lance/Rust traceback —
+  `ReembedLocked` remains a `RuntimeError` subclass; `main()`'s existing
+  exception handling is untouched.
+- SIGKILLed holder does not wedge the recovery verb — proven by
+  `test_sigkilled_holder_releases_lock_automatically`, a real subprocess
+  that acquires the flock, blocks, gets SIGKILLed, and a fresh acquire in
+  the test process succeeds within the polling window with zero
+  staleness logic involved (the kernel released it).
+- PID reuse is no longer a hazard — nothing reads or branches on the PID
+  the file contains.
+
+**Test rewrites.** Removed 5 tests that directly exercised the deleted
+PID-heuristic API (`test_stale_lock_from_dead_pid_is_recovered_
+automatically`, `test_corrupt_lock_file_is_recovered_automatically`,
+`test_live_pid_lock_is_not_recovered`, `test_pid_alive_helper`,
+`test_read_lock_pid_helper`), replaced with:
+- `test_lock_file_with_garbage_content_is_irrelevant_to_flock` — an
+  empty/unparseable lock file is not special; a fresh acquire against it
+  succeeds immediately (nobody holds the flock on it).
+- `test_lock_file_naming_a_pid_that_still_exists_is_not_special` —
+  content naming a genuinely live PID (this test process) is likewise
+  decorative; a run proceeds normally since nothing flocked the file.
+- `test_holding_flock_directly_refuses_a_concurrent_run` — the actual
+  mutual-exclusion guarantee: a second fd genuinely holding the flock
+  (bypassing `_ReembedLock` to simulate "some other process has it")
+  causes `run()` to raise `ReembedLocked`; releasing it lets a normal run
+  proceed.
+- `test_sigkilled_holder_releases_lock_automatically` — described above.
+
+Also updated `test_lock_released_after_run_completes` and
+`test_lock_released_after_run_raises`, which used to assert
+`not lock_path.exists()` after `release()`; under the new "never unlink"
+design that assertion is now false by design, so both were changed to
+assert the file still exists but is no longer *held* (a fresh
+`_ReembedLock().acquire()`/`release()` on it succeeds immediately).
+
+`tests/test_pkb_reembed.py`: 26 tests (was net effect: -5 removed, +4
+added, 2 rewritten in place — 27 before this round, 26 after; the two
+merged single-assertion PID tests became one flock-focused test each
+rather than a 1:1 swap). All 26 passing.
+
+## Documentation task: the "one PKB root per process" invariant
+
+Added a "Load-bearing invariant: one PKB root per process" section to
+`src/arail/pkb_index.py`'s module docstring, naming the globals it
+protects (`_pending`, `_timer`, `_initialized_roots`, `_pkb_root_cache`,
+`_degraded_codes`), stating the two facts that make them safe
+(`arail.config.PKB_ROOT` is a module constant never rebound in-process;
+concurrent Worlds run process-per-World), what breaks if either half is
+violated (cross-root degraded-code leaks; the exact `_pkb_root_cache`
+hazard ASK-1 just closed, reintroduced by a different cause), and a
+pointer to the `sprints/BACKLOG.md` entry.
+
+Added the same invariant, phrased for the conventions list, to this
+repo's own `CLAUDE.md` under "Conventions worth knowing" (the ARAIL-repo
+CLAUDE.md, not the workspace-root one — this invariant is specific to
+`pkb_index.py`'s module-global state and the concurrent-Worlds
+process-per-World model, both ARAIL-repo concepts covered by that
+section already).
+
+## Regression check
+
+Targeted suites (`test_ensure_ready_build_isolation.py`,
+`test_pkb_index.py`, `test_pkb_index_integration.py`,
+`test_pkb_index_qa.py`, `test_pkb_index_perf.py`,
+`test_c1_error_contract.py`, `test_pkb_reembed.py`): all passing.
+Broader `-k "pkb or reembed"` selection across the full `tests/` tree:
+**154 passed**, 0 failed.
+
+Full unfiltered suite: `52 failed, 4364 passed, 18 skipped, 3 xfailed,
+7 errors` (501s). All 52 failures + 7 errors are in
+`test_recap_core.py`, `test_reset_stop_scope.py`,
+`test_runtime_profile_api.py`, `test_shell_source_safety.py`,
+`test_swarm_goal_surfaces.py`, and `test_world_forge_api.py` — none of
+which this round (or any commit in this sprint) touches. Confirmed
+pre-existing and not something this round introduced: checked out
+baseline `8cb5760` into a scratch worktree and ran the same six files in
+isolation — byte-identical failure/error list (10 failed, 33 passed,
+7 errors) both there and on this branch. Not investigated further; out
+of this round's scope (ASK-1, ASK-2, documentation only) and pre-dates
+this entire sprint.
+
+Boundary check (`git diff --stat e1f2ef7..HEAD -- src/arail/world_mount.py
+scripts/start.sh scripts/lib/instances.sh src/arail/wiki_vectors.py`)
+empty, as required.
+
+## Commit this invocation
+
+- ASK-1 fix (`pkb_index.py` guard move + 3 new tests)
+- ASK-2 fix (`pkb_reembed.py` flock rewrite + test rewrites)
+- documentation task (`pkb_index.py` docstring + `CLAUDE.md` line)
+- this
+  BUILD_LOG entry.
