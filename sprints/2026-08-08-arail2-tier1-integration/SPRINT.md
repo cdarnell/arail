@@ -38,9 +38,9 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | build4 | builder | BUILD_LOG.md | done (BLOCK-3) | 2026-08-08T22:28Z | 2026-08-08T22:43Z | fixed; regression found by orchestrator |
 | build5 | builder | BUILD_LOG.md | done (ORCH-1) | 2026-08-08T22:46Z | 2026-08-08T22:54Z | 322 tests |
 | review4 | architect (review) | REVIEW4.md | done | 2026-08-08T22:56Z | 2026-08-08T23:20Z | **WEAK_PASS** |
-| build6 | builder | BUILD_LOG.md | in_progress (ASK-1, ASK-2) | 2026-08-08T23:22Z | — | — |
+| build6 | builder | BUILD_LOG.md | done (ASK-1, ASK-2, invariant docs) | 2026-08-08T23:22Z | 2026-08-08T23:45Z | 154 targeted tests |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
-| test | qa | TEST_REPORT.md | pending | — | — | — |
+| test | qa | TEST_REPORT.md | in_progress | 2026-08-08T23:47Z | — | — |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log
