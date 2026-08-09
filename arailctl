@@ -1089,7 +1089,17 @@ LOGSEOF
 
                 exec python -m arail.compiled_kb bootstrap "$@"
                 ;;
-            *) die "pkb op must be one of: ingest | compile | browse | prune | bootstrap" ;;
+            revoke)
+                # ASK-1: `pkb revoke --auto` — the one-step rollback for the
+                # whole mount/swap/bootstrap auto-approval mechanism.
+                # Non-sticky (see compiled_kb.revoke_auto docstring): fully
+                # reversible by the next mount/swap/bootstrap.
+                [[ -d .venv ]] || die "missing .venv — run ./arailctl setup"
+                # shellcheck disable=SC1091
+                source .venv/bin/activate
+                exec python -m arail.compiled_kb revoke "$@"
+                ;;
+            *) die "pkb op must be one of: ingest | compile | browse | prune | bootstrap | revoke" ;;
         esac
         ;;
     wiki)

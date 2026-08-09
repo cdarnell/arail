@@ -320,3 +320,26 @@ def test_bootstrap_never_raises_on_root_missing(tmp_path):
     result = ckb.bootstrap(root)
     assert result["skipped_reason"] is not None
     assert result["approved"] == 0
+
+
+# ── CLI: `pkb revoke --auto` (ASK-1) ─────────────────────────────────────
+
+def test_cli_revoke_auto_wired(pkb, monkeypatch, capsys):
+    monkeypatch.delenv("ARAIL_AUTO_APPROVE_WORLD_TERMS", raising=False)
+    monkeypatch.setattr(ckb, "_pkb_root", lambda: pkb)
+    ckb.auto_approve_world_terms(
+        "math", bundle_terms=_BUNDLE_TERMS, seal_sha="x" * 12, pkb_root=pkb)
+
+    rc = ckb._cli(["revoke", "--auto"])
+
+    assert rc == 0
+    assert ckb.approved_paths(pkb) == set()
+    assert ckb.unapproved_paths(pkb) == set()  # non-sticky
+    out = capsys.readouterr().out
+    assert "revoked  : 2" in out
+
+
+def test_cli_revoke_without_auto_is_a_clean_error(pkb, monkeypatch):
+    monkeypatch.setattr(ckb, "_pkb_root", lambda: pkb)
+    rc = ckb._cli(["revoke"])
+    assert rc == 2

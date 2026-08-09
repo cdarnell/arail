@@ -812,6 +812,13 @@ def _cli(argv: list[str] | None = None) -> int:
              "pages, or write an empty (present) manifest if none qualify")
     p_boot.add_argument("--dry-run", action="store_true",
                         help="print what would be approved, write nothing")
+    p_revoke = sub.add_parser(
+        "revoke",
+        help="un-approve items (--auto: the one-step rollback for "
+             "mount/swap/bootstrap auto-approval)")
+    p_revoke.add_argument("--auto", action="store_true",
+                          help="revoke every auto-approved item (non-sticky "
+                               "— reversible by the next mount/swap/bootstrap)")
     args = ap.parse_args(argv)
 
     if args.op == "bootstrap":
@@ -823,6 +830,19 @@ def _cli(argv: list[str] | None = None) -> int:
         print(f"{label:9}: {result['approved']}")
         if result["skipped_reason"]:
             print(f"note     : {result['skipped_reason']}")
+        return 0
+
+    if args.op == "revoke":
+        if not args.auto:
+            print("revoke currently only supports --auto "
+                  "(per-path revocation is done from the Knowledge page)",
+                  file=sys.stderr)
+            return 2
+        root = _pkb_root()
+        n = revoke_auto(root)
+        print(f"revoked  : {n} auto-approved item(s)")
+        print("note     : non-sticky — the next mount/swap/bootstrap can "
+              "re-approve these terms")
         return 0
 
     root = _pkb_root()
