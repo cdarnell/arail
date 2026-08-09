@@ -30,8 +30,18 @@ def _reset():
 
 @pytest.fixture
 def unreachable_provider(monkeypatch):
-    """Restore the real embed implementation and aim it at a closed port."""
-    import importlib
+    """Restore the real embed implementation and aim it at a closed port.
+
+    ``tests/conftest.py``'s autouse fixture replaces ``embed_documents`` /
+    ``embed_query`` / ``embed`` with a network-free fake; these tests need
+    the real ones. It does **not** stub ``embed_texts``, so the real
+    behaviour is rebuilt on top of that rather than by
+    ``importlib.reload`` — a reload would mint a new ``EmbeddingError``
+    class, and ``pkb_index``'s call-time ``from ... import EmbeddingError``
+    would then stop matching the one other test modules imported at
+    collection time, silently downgrading C1's LOUD branch to the generic
+    SKIP branch for the rest of the session.
+    """
     import arail.dbspec.embed as E
 
     sock = socket.socket()
@@ -41,12 +51,12 @@ def unreachable_provider(monkeypatch):
 
     monkeypatch.setenv("MODEL_API_BASE", f"http://127.0.0.1:{port}")
     monkeypatch.delenv("LAB_MODE", raising=False)
-    importlib.reload(E)
-    monkeypatch.setattr("arail.dbspec.embed.embed_documents", E.embed_documents)
-    monkeypatch.setattr("arail.dbspec.embed.embed_query", E.embed_query)
-    monkeypatch.setattr("arail.dbspec.embed.embed", E.embed)
-    yield E
-    importlib.reload(E)
+    monkeypatch.setattr(E, "embed_documents", lambda texts: E.embed_texts(
+        texts, prefix=E.embedding_model().document_prefix))
+    monkeypatch.setattr(E, "embed_query", lambda text: E.embed_texts(
+        [text], prefix=E.embedding_model().query_prefix)[0])
+    monkeypatch.setattr(E, "embed", lambda text: E.embed_texts([text])[0])
+    return E
 
 
 def _corpus(tmp_path):

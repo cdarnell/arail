@@ -148,6 +148,98 @@ REAL_DEGRADED_TRIGGERS = [
 
 
 @pytest.mark.usefixtures("_qa_pkb_reset")
+def test_the_real_clean_machine_provider_message_can_actually_be_served(
+        monkeypatch, tmp_path):
+    """QA-5, the state the builder's parameters do not reach.
+
+    ``EmbeddingUnavailable``'s message is the one a friend sees while
+    ``ollama pull nomic-embed-text`` is still running, and it is the only
+    real reason that is **multi-line** rather than em-dashed — so it
+    exercises the control-strip half of ``_header_safe`` on genuine
+    product text rather than on a synthetic hostile payload. Driven
+    through the real ``urllib`` path against a closed loopback port.
+    """
+    import socket
+    import arail.dbspec.embed as E
+    import arail.pkb as pkb
+    import arail.pkb_index as pki
+    from arail.dbspec.generated.models_registry import EMBEDDING_DIM
+    from arail.vector_index import hash_embedding
+
+    root = _world(tmp_path, monkeypatch)
+    real_docs = E.embed_documents
+    E.embed_documents = lambda texts: [
+        hash_embedding(t, dim=EMBEDDING_DIM) for t in texts]
+    try:
+        pkb.index_all(pkb_root=root, include_docs=False)
+    finally:
+        E.embed_documents = real_docs
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    monkeypatch.setenv("MODEL_API_BASE", f"http://127.0.0.1:{port}")
+    monkeypatch.delenv("LAB_MODE", raising=False)
+    # Rebuild the real embed_query on top of the un-stubbed embed_texts
+    # rather than reloading the module — a reload would mint a new
+    # EmbeddingError class and break `except EmbeddingError` elsewhere.
+    monkeypatch.setattr(E, "embed_query", lambda text: E.embed_texts(
+        [text], prefix=E.embedding_model().query_prefix)[0])
+
+    pki._reset_for_tests()
+    pkb.search("anything", root)
+    ok, reason = pkb.retrieval_status()
+    assert ok is False
+    assert "\n" in reason, (
+        "the provider message is expected to be multi-line — that is what "
+        "makes it exercise the control-strip half of the fix")
+    assert "ollama pull" in reason
+
+    monkeypatch.setattr(portal_app, "pkb_search",
+                        lambda q: [{"path": "a.md", "source": "keyword"}])
+    monkeypatch.setattr("arail.pkb.retrieval_status", lambda: (False, reason))
+    result = _run(portal_app.api_pkb_search(q="hello"))
+
+    value = result.headers["X-Retrieval-Reason"]
+    assert not any(c in value for c in ("\r", "\n", "\x00"))
+    assert "ollama pull nomic-embed-text" in value, (
+        "the one command that fixes a clean machine must survive "
+        "sanitisation and the 200-char truncation")
+
+
+@pytest.mark.xfail(strict=True, reason="QA-7: _header_safe strips only "
+                                       "CR/LF/NUL; other C0 controls from a "
+                                       "provider error body still reach the "
+                                       "header and 500 on the wire")
+@pytest.mark.parametrize("code", [0x0b, 0x0c, 0x1b, 0x07, 0x7f])
+def test_other_control_characters_are_also_removed(monkeypatch, code):
+    """QA-7 — the residual of the QA-4/QA-5 fix.
+
+    ``_header_safe`` removes CR/LF/NUL by denylist and ASCII-folds
+    everything above 0x7f. Every *other* C0 control passes through
+    unchanged, and they are not inert: ``h11`` rejects VT (0x0b) and FF
+    (0x0c), and uvicorn's httptools transport rejects 29 of the 31 — both
+    verified directly. That is the identical 500 QA-5 was, reached by a
+    different byte.
+
+    Reachable the same way QA-4 is: ``embed._post`` splices up to 400
+    bytes of the provider's raw HTTP error body into the message, and in
+    ``LAB_MODE=hybrid`` that provider is off-box. An ANSI-coloured or
+    non-JSON error page is enough.
+
+    An allowlist (keep printable ASCII plus space and tab) closes the
+    whole class instead of three members of it.
+    """
+    monkeypatch.setattr(portal_app, "pkb_search", lambda q: [])
+    monkeypatch.setattr("arail.pkb.retrieval_status",
+                        lambda: (False, f"provider said: a{chr(code)}b"))
+    result = _run(portal_app.api_pkb_search(q="hello"))
+    value = result.headers["X-Retrieval-Reason"]
+    assert chr(code) not in value
+
+
+@pytest.mark.usefixtures("_qa_pkb_reset")
 @pytest.mark.parametrize("label,trigger", REAL_DEGRADED_TRIGGERS,
                          ids=[lbl for lbl, _ in REAL_DEGRADED_TRIGGERS])
 def test_the_real_degraded_messages_can_actually_be_served(

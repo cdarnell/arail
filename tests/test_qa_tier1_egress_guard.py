@@ -14,7 +14,6 @@ to somewhere else.
 from __future__ import annotations
 
 import http.server
-import importlib
 import json
 import socketserver
 import threading
@@ -24,14 +23,23 @@ import pytest
 
 @pytest.fixture
 def embed_mod(monkeypatch):
-    """A freshly-imported embed module with every base-resolving env var
-    cleared, so a test only sees what it sets."""
+    """The embed module with every base-resolving env var cleared, so a
+    test only sees what it sets.
+
+    Deliberately does NOT ``importlib.reload`` the module. ``ollama_root``
+    reads the environment at call time, so a reload buys nothing — and it
+    costs a great deal: reloading rebinds ``EmbeddingError`` to a new class
+    object, after which ``pkb_index``'s call-time ``from ... import
+    EmbeddingError`` no longer matches an ``EmbeddingError`` any other test
+    module imported at collection time. That silently turns C1's LOUD
+    branch into the generic SKIP branch in whatever test runs next
+    (reproduced: it broke three ``test_c1_error_contract`` tests).
+    """
     for var in ("MODEL_API_BASE", "OLLAMA_HOST", "OLLAMA_PORT", "LAB_MODE"):
         monkeypatch.delenv(var, raising=False)
     import arail.dbspec.embed as E
-    importlib.reload(E)
-    yield E
-    importlib.reload(E)
+    monkeypatch.setattr(E, "_LOGGED_HYBRID_EGRESS", False, raising=False)
+    return E
 
 
 # ---------------------------------------------------------------------------

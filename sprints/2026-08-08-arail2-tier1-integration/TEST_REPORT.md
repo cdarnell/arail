@@ -1,18 +1,170 @@
 # Test report: Tier 1.2 — nomic-embed-text on the PKB retrieval path
 
 **Date:** 2026-08-08
-**Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `211804d`
+**Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `cc08cf7` (round 2) · `211804d` (round 1)
 **Baseline:** `8cb5760`
 **Prior:** [REVIEW4.md](./REVIEW4.md) (WEAK_PASS) · [REVIEW3.md](./REVIEW3.md) (BLOCK) · [REVIEW2.md](./REVIEW2.md) (BLOCK) · [ARCHITECTURE.md](./ARCHITECTURE.md)
-**Verdict: FAIL**
 
-One defect, found on the first probe of a real World's degraded state, breaks a
+**Round 1 verdict: FAIL** (QA-5).
+**Round 2 verdict: WEAK_PASS** — QA-5 and QA-4 are genuinely dead, verified by
+execution against scratch copies of the operator's real Worlds in all five
+degraded states. Four documented low-severity residuals remain, all filed as
+`xfail(strict=True)` reproducers.
+
+**Would I ship this to someone's family? Yes — with the two paragraphs of
+`pkb reembed` guidance at the end of this report in front of them first.**
+
+---
+
+## Round 2 — re-verification of the QA-5/QA-4 fix
+
+**Commits:** `cc503d1` (fix) · `77d569b` (BACKLOG) · `cc08cf7` (BUILD_LOG)
+
+### 1. QA-5 is dead, in every degraded state, on real corpora
+
+The original end-to-end reproduction, re-run against scratch copies of the real
+`video-games` and `qukaizen` Worlds. Every state now returns **200** with a
+header the wire layer accepts:
+
+| State | How it was reached | Result |
+|---|---|---|
+| `dimension` | real legacy 128-dim table, no sidecar | 200, 165-char header, `pkb reembed` intact |
+| `empty` (search path) | index removed, `pkb.search()` | 200, 63-char header, command intact |
+| `empty` (doctor path) | `.cache` removed, `ensure_ready(build=False)` | 200, command intact |
+| `provider` (clean machine) | real `urllib` path at a closed loopback port | 200, `ollama pull nomic-embed-text` intact |
+| hostile provider body | CR/LF/NUL + non-latin-1 + emoji injected into the reason | 200, no control chars, no injected headers |
+
+In all five: zero control characters, zero non-ASCII bytes, **zero extra headers
+injected**, and `h11.Connection.send` accepts the resulting `raw_headers` (the
+exact call that rejected the old value). Not papered over — the 500 is gone
+because the string can no longer contain a byte that causes it.
+
+**Is the folded message still intelligible?** Yes, marginally. The em dash
+becomes `?`:
+
+> `pkb_pages index was built with a different embedding dimension than the current spec declares ? run \`./arailctl pkb reembed\` to upgrade.`
+
+Readable, and the runnable command — the only part that matters operationally —
+survives verbatim in every state. It reads like a mojibake artefact rather than
+prose, which is a cosmetic cost worth one follow-up line: mapping `—` → `--`
+before folding would read cleanly. Not blocking.
+
+The multi-line `provider` message loses its line breaks and runs together
+(`…Connection refused).Start it with:  ollama serve…`), but every sentence and
+the `ollama pull` command survive. Also acceptable, also cosmetically improvable
+(replace stripped newlines with a space rather than nothing).
+
+One honest caveat, pre-existing and not introduced here: when *two* codes are
+set at once, `embedding_status()` joins them with `"; "` and the 200-char
+truncation can cut the actionable command off the end. Observed in the hostile
+case, where a long provider message pushed `pkb reembed` past the limit.
+
+### 2. QA-4 is closed, not xfail-flipped
+
+Fed a hostile provider error body carrying
+`boom\r\nX-Injected: yes\r\n\r\n<html>owned</html>\x00tail — é 💥` through the
+real degraded path. The CR/LF/NUL are stripped, `X-Injected` and `Set-Cookie`
+appear **nowhere** in the response headers, and the response serializes cleanly.
+No injection is possible at this call site.
+
+### 3. The new test is honest, not decorative
+
+Four independent mutations in a scratch worktree, each confirming the test
+detects a different failure:
+
+| Mutation | Result |
+|---|---|
+| A — remove the ASCII fold, keep the strip | 5 red (all four real-message params + `non-latin1`) |
+| B — remove the strip, keep the fold | 4 red (`crlf`/`lf`/`cr`/`nul`) |
+| C — product message loses its em dash | red, with the test's own explicit message: *"trigger 'dimension''s real reason no longer contains an em dash"* |
+| D — `check_read_path_health` stops degrading | red on *"trigger 'dimension' did not actually degrade retrieval_status()"* |
+
+C and D are the ones that matter. The test does not merely *drive* the real code
+path — it fails loudly if the trigger stops exercising it (D) or if the product's
+message drifts away from the hazard (C). It cannot pass vacuously, and it cannot
+drift out of sync with what the product emits. **This is the durable fix it
+claims to be.**
+
+Two things the builder's parameters did not reach, which I added rather than
+asked for:
+
+* `test_the_real_clean_machine_provider_message_can_actually_be_served` — the
+  `provider` state is the only real reason that is **multi-line rather than
+  em-dashed**, so it is the one that exercises the control-strip half of
+  `_header_safe` on genuine product text. Driven through the real `urllib` path
+  against a closed port.
+* **QA-7** (below) — the residual class the fix does not cover.
+
+### 4. QA-7 — new, LOW: the fix is narrower than the bug class
+
+`_header_safe` removes CR/LF/NUL by **denylist** and ASCII-folds everything above
+0x7f. Every *other* C0 control passes through unchanged — and they are not inert:
+
+* `h11` rejects **VT (0x0b)** and **FF (0x0c)**;
+* uvicorn's `httptools` transport rejects **29 of the 31**.
+
+Both verified directly against `h11.Connection.send` and
+`uvicorn…httptools_impl.HEADER_VALUE_RE`. That is the identical QA-5 500,
+reached by a different byte, through the identical route QA-4 uses (up to 400
+bytes of a provider's raw HTTP error body, off-box in `LAB_MODE=hybrid`; an
+ANSI-coloured or non-JSON error page suffices).
+
+Not blocking: it needs a non-default configuration *and* a hostile-or-broken
+provider, and it is not the operator's shipping state. An **allowlist** (keep
+printable ASCII plus space and tab) closes the whole class instead of three
+members of it. Pinned by
+`test_other_control_characters_are_also_removed` (`xfail(strict=True)`, 5 params).
+
+### 5. QA-6's BACKLOG entry captures the hazard
+
+`sprints/BACKLOG.md` now states the mechanism precisely — gate on by default,
+nothing approved on all six real roots, `[]` returned *before* `_semantic_search`
+runs, no degraded code set, `retrieval_status()` reporting `(True, "")` on the
+same World where Buddy gets zero hits — and states the binding constraint: the
+deferred context header **must not** be a naive `retrieval_status()` read, and
+whoever builds it must first make the agent path consult the gate/approved state.
+It links the pinning test. That is the hazard, correctly captured. The `_table()`
+entry was also honestly re-filed at my measured 0.39–1.21 ms with the original
+7.5 ms marked as overstated.
+
+### 6. No regression, and one of my own defects fixed
+
+Full suite at `1443c3f`: **52 failed, 4434 passed, 18 skipped, 11 xfailed, 7
+errors** — identical failure and error counts to baseline `8cb5760`
+(52F/4113P/7E), with the same single order-dependence ID swap already proven
+identical in isolation. The 321 extra passes are the sprint's tests plus mine;
+the 8 extra xfails are my strict reproducers.
+
+**A defect in my own round-1 tests, found and fixed here:** three of my fixtures
+called `importlib.reload(arail.dbspec.embed)`. That mints a *new*
+`EmbeddingError` class, after which `pkb_index`'s call-time
+`from arail.dbspec.embed import EmbeddingError` no longer matches the class other
+test modules imported at collection time — silently downgrading C1's LOUD branch
+to the generic SKIP branch for whatever ran next. It broke three
+`test_c1_error_contract` tests when my files ran first, and it was
+order-dependent, so it did not surface in the full-suite run. Replaced with
+`monkeypatch` over the un-stubbed `embed_texts`; three consecutive combined runs
+of all 15 QA-adjacent files now give **196 passed, 8 xfailed, 0 failed**. I am
+recording this because it is exactly the kind of cross-test pollution I would
+have filed against the builder.
+
+### 7. The real-lab boundary held again
+
+The 17,015-entry `stat` inventory was re-taken at the start of round 2 and again
+at the end. `diff` is **empty** against the round-1 pre-QA snapshot in both
+cases. Every reproduction in this round ran against scratch copies under the
+session scratchpad.
+
+---
+
+## Round 1 (superseded, kept for the record)
+
+One defect, found on the first probe of a real World's degraded state, broke a
 user-facing surface on **four of the operator's five Worlds plus the root lab**,
-and on **every clean machine that has not yet pulled the model**. It is a
-regression introduced by this sprint. It is a ten-line fix. Everything else in
-this sprint held up under attack — the lock, the shadow-swap, the egress guard
-and the read-only `doctor` are all genuinely solid, and I say so below with the
-evidence.
+and on **every clean machine that had not yet pulled the model**. It was a
+regression introduced by this sprint. Everything else in this sprint held up
+under attack — the lock, the shadow-swap, the egress guard and the read-only
+`doctor` are all genuinely solid, and I say so below with the evidence.
 
 ---
 
@@ -95,8 +247,9 @@ which parametrises over the four real message texts.
 
 ## Test inventory
 
-New files, all committed. 60 passing, 7 xfailed (defect reproducers), 5 failing
-(the QA-5 defect report — these must stay red until fixed).
+New files, all committed. **Round 2 state: 67 passing, 12 xfailed (strict defect
+reproducers), 0 failing.** (Round 1 was 60 passing / 7 xfailed / 5 failing, the
+5 being the QA-5 defect report, now green.)
 
 | # | Test | Category | Covers | Status |
 |---|---|---|---|---|
@@ -147,11 +300,12 @@ New files, all committed. 60 passing, 7 xfailed (defect reproducers), 5 failing
 | 60 | `embedding_pull_is_tier_independent` | Setup | PKB search is minimalist | pass |
 | 61 | `embedding_pull_runs_at_most_once` | Setup | clean-machine wait | pass |
 | **`tests/test_qa_tier1_search_header_safety.py`** — Security (20%) |
-| 62–65 | `a_hostile_provider_message_cannot_split_the_response` (CR/LF/NUL) | Security | QA-4 | **xfail** |
-| 66 | …same, `non-latin1` | Security | QA-5 root cause | **FAIL** |
-| 67–70 | `the_real_degraded_messages_can_actually_be_served` ×4 | Regression | **QA-5** | **FAIL** |
-| 71 | `reason_header_is_length_bounded` | Security | DoS/proxy bound | pass |
-| 72 | `healthy_search_keeps_the_bare_list_contract` | Regression | three templates do `r.json().forEach` | pass |
+| 62–66 | `a_hostile_provider_message_cannot_split_the_response` ×5 | Security | QA-4 + QA-5 root cause | pass (round 2) |
+| 67–70 | `the_real_degraded_messages_can_actually_be_served` ×4 (rewritten to trigger the real code paths) | Regression | **QA-5** | pass (round 2) |
+| 71 | `the_real_clean_machine_provider_message_can_actually_be_served` | Setup | the multi-line `provider` reason, real urllib path (**added round 2**) | pass |
+| 72–76 | `other_control_characters_are_also_removed` ×5 | Security | **QA-7** (**added round 2**) | **xfail (strict)** |
+| 77 | `reason_header_is_length_bounded` | Security | DoS/proxy bound | pass |
+| 78 | `healthy_search_keeps_the_bare_list_contract` | Regression | three templates do `r.json().forEach` | pass |
 
 Allocation actually spent: 30% setup (17 tests) · 30% Buddy (5 tests + the real-World
 measurement below) · 20% security (26 tests) · 10% happy · 10% regression. Matches
@@ -355,17 +509,57 @@ adding it was out of scope for this pass. Test-count delta on the surface:
 
 ## Required before ship
 
-1. **Fix QA-5.** Sanitise the reason to ASCII (and strip CR/LF/NUL — QA-4) before
-   it becomes a header value. Five tests in
-   `tests/test_qa_tier1_search_header_safety.py` are the acceptance criterion.
-2. **Decide QA-6 explicitly.** Either wire the agent path to the health check so
-   the status is honest there, or write down — in the sprint ledger, not a code
-   comment — that Buddy is zero-retrieval on the operator's Worlds until
-   knowledge is approved, and that the deferred context header must not be built
-   until this is fixed, because as designed it would print a false "healthy".
-3. **File QA-1/QA-2/QA-3** in `sprints/BACKLOG.md` with their reproductions, or
-   fix them (each is under ten lines). They are `xfail(strict=True)`, so a fix
-   removes its own marker.
+1. ~~**Fix QA-5.**~~ **Done** (`cc503d1`), re-verified in round 2 §1.
+2. ~~**Decide QA-6 explicitly.**~~ **Done** (`77d569b`) — recorded in
+   `sprints/BACKLOG.md` with the binding constraint on the deferred header;
+   round 2 §5 confirms the entry captures the hazard.
+3. **File QA-1/QA-2/QA-3/QA-7** in `sprints/BACKLOG.md` with their reproductions,
+   or fix them (each is under ten lines). All four are `xfail(strict=True)`, so a
+   fix removes its own marker. **This is the only outstanding item, and it is why
+   this is WEAK_PASS rather than PASS.**
+
+---
+
+## Before the operator runs `pkb reembed` on a real World
+
+This is the next thing that will actually happen to their data, so it is worth
+stating plainly. All numbers measured on scratch copies of the real Worlds.
+
+**It is fast, and it is safe to run with the lab up.** The largest World (`ai`,
+419 rows) re-embeds in **4.3 s**; `video-games` (356 rows) in **5.6 s**.
+`--dry-run` gives an honest ETA first (predicted 5 s, actual 5.6 s) and writes
+nothing. I ran a search loop against a World while it was being swapped
+underneath: 94 searches, **zero exceptions** — the in-flight ones caught the
+missing-file error, degraded, and fell through to keyword results. No need to
+stop the World; expect a moment of keyword-only results.
+
+**It roughly doubles the index directory until they clean up.** The old table is
+kept as `pkb_pages.lance.bak-<timestamp>` and is **never auto-pruned**. On `ai`
+that is a 79 MB backup next to a 2 MB new table — the re-embed *defragments*
+2421 fragments down to one, so deleting the `.bak-` dir once they are satisfied
+reclaims **77 MB**. Until then, disk goes up, not down. That backup is also the
+documented rollback: stop the lab, move it back over `pkb_pages.lance`, delete
+`pkb_pages.provenance.json`, restart.
+
+**Run it from the primary checkout, not a worktree.** `collect_pending_rows`
+includes the docs-registry slice, which is global and resolved from whichever
+checkout the process runs in — 38 of `video-games`' 356 rows are docs pages. Run
+from a worktree and that worktree's `docs/` lands in the operator's World index.
+
+**Nothing user-authored is at risk in either direction.** `pkb_pages` is a
+derived index over files that stay on disk; the worst case is rebuilding it.
+That is why this change is rollback-safe.
+
+**Do all five Worlds, not one.** Until a World is re-embedded it stays
+`dimension`-degraded, which now means keyword-only retrieval rather than a 500 —
+but on natural-language questions the keyword fallback is a whole-query literal
+substring sweep and returns nothing at all. `./arailctl pkb reembed --all` covers
+the root lab plus every registered World.
+
+**And it will not fix Buddy on its own.** Per QA-6, the Compiled-KB gate has
+nothing approved on any of the six real roots, so Buddy keeps getting zero hits
+until knowledge is approved into the Compiled KB — re-embedding improves
+`/knowledge` search immediately, but the agent path only after approval.
 
 Not gating, carried forward: the `_initialized` test-seam sweep (29 dead
 assignments), REVIEW2 ASK-4's LAN-Ollama documentation (now four reviews old),
