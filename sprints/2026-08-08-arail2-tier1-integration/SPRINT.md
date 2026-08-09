@@ -42,7 +42,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | done | 2026-08-08T23:47Z | 2026-09-09T00:18Z | **FAIL** (QA-5) |
 | build7 | builder | BUILD_LOG.md | done (QA-4/QA-5) | 2026-09-09T00:20Z | 2026-09-09T00:29Z | 11/11 green |
-| test2 | qa | TEST_REPORT.md | in_progress (re-verify) | 2026-09-09T00:31Z | — | — |
+| test2 | qa | TEST_REPORT.md | done | 2026-09-09T00:31Z | 2026-09-09T00:56Z | **WEAK_PASS** |
+| build8 | builder | BUILD_LOG.md | in_progress (QA-1/2/3/7) | 2026-09-09T00:58Z | — | — |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log
@@ -402,6 +403,45 @@ every non-`hybrid` `LAB_MODE`, and 301/302/307 redirects. `_table()` measured
 **0.39–1.21 ms**, not 7.5 — the deferral is justified and REVIEW3's latency
 concern was overstated. Reembed incidentally collapses `ai`'s 2,421 fragments
 to 1.
+
+## QA round 2 — WEAK_PASS ("would I ship this to someone's family? Yes")
+
+QA-5 confirmed **genuinely dead**: the original repro re-run against scratch
+copies of the real `video-games` and `qukaizen` Worlds in all five degraded
+states returned **200 every time**, and `h11.Connection.send` — the exact call
+that rejected the old value — accepts the new `raw_headers`. QA-4 closed: a
+hostile body with CRLF, NUL, and emoji produced no injected header.
+
+**The new test is honest.** Four mutations confirm it: removing the fold → 5
+red; removing the strip → 4 red; removing the em dash *from the product
+message* → red; making the dimension check stop degrading → red. It cannot pass
+vacuously and cannot drift from what the product emits.
+
+**QA disclosed a defect of its own.** Three round-1 fixtures called
+`importlib.reload(arail.dbspec.embed)`, minting a fresh `EmbeddingError` class
+and silently downgrading C1's LOUD branch to SKIP for whatever ran next —
+breaking three `test_c1_error_contract` tests order-dependently. Rebuilt on the
+un-stubbed `embed_texts`; three consecutive combined runs give 196 passed /
+8 xfailed / 0 failed. Recorded because "it is exactly what I'd have filed
+against the builder."
+
+**Real lab unchanged**: 17,015-entry `stat` inventory, empty diff at round-2
+start and end.
+
+### Operator guidance before the first real `pkb reembed`
+- **Fast, safe with the lab running.** Largest World (`ai`, 419 rows) = **4.3 s**.
+  94 searches through a live swap: zero exceptions; in-flight ones degraded to
+  keyword and recovered.
+- **Doubles the index dir until cleaned up.** `.bak-<ts>` is never auto-pruned —
+  79 MB beside a 2 MB new table on `ai`. It is also the rollback. Deleting it
+  reclaims ~77 MB, because the re-embed defragments 2,421 fragments to one.
+- **Run from the primary checkout, not a worktree** — the docs-registry slice is
+  global (38 of `video-games`' 356 rows), so a worktree's `docs/` would land in
+  the World.
+- **Do all five (`--all`)** — until re-embedded, natural-language questions
+  return *nothing*, because the keyword fallback is a whole-query literal
+  substring sweep.
+- **It will not fix Buddy** — QA-6: zero approved paths on all six roots.
 
 ## Skipped phases
 
