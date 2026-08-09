@@ -484,6 +484,44 @@ Exit: `0` pruned or already clean · `3` pkb root missing/unreadable — the
 prune deliberately refuses there rather than treating "every path looks
 deleted" as 556 revocations.
 
+`bootstrap` — backfill the Compiled KB for this root: auto-approve the
+currently-staged World's term pages, or write an empty-but-present manifest
+if none qualify. Fixes the QA-6 symptom (agents get zero knowledge-base
+results because the gate ships on while nothing has ever been approved).
+`./arailctl install` (alias `update`) calls this once, non-fatally, for the
+root lab. It is deliberately **not** called by `./arailctl start` — booting
+must stay quiet and must never silently re-approve a term the operator
+revoked.
+
+| Flag | Effect |
+|---|---|
+| `--dry-run` | Print what would be approved, change nothing |
+
+Scope invariant (a security boundary, not a convenience default): a path is
+auto-approved iff it matches `sources/world-<slug>/terms/<term-slug>.md`
+**and** `<term-slug>` is present in the seal-verified bundle's `terms.json`.
+`notes/`, `inbox/`, `conversations/`, and everything under `agents/` are
+unreachable by this mechanism no matter what a World bundle contains — only
+World-forged, DaC-compiled, cryptographically sealed term pages qualify.
+
+Two escape hatches, both fail toward *less* auto-approval:
+
+- `ARAIL_AUTO_APPROVE_WORLD_TERMS=off` disables the mount-time hook globally
+  (the explicit `bootstrap` verb still works).
+- A sentinel file `compiled/kb/no-auto-approve` under a PKB root disables it
+  for that root only — presence, or any error reading it, counts as
+  disabled. It's a file rather than a config flag so it lives with the data
+  and survives a re-mount; drop it into a World's PKB root to opt that World
+  out with no code change.
+
+A term the operator explicitly revokes (`./arailctl pkb prune` doesn't do
+this — revocation is via the Knowledge page's Compiled KB review, or
+`compiled_kb.revoke()`) stays revoked across future mounts via a sticky
+`compiled/kb/unapproved.json` record; a later explicit re-approval clears
+it. `./arailctl pkb bootstrap` is also the door for a lab whose World was
+mounted before this sprint shipped — those bundles are already sealed and
+will never re-enter a mount path on their own, so they need one manual run.
+
 ### `wiki <op>`
 
 `build`\|`info`\|`new <title>`\|`serve` — ARAIL docs-as-code. Unchanged.
