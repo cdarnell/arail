@@ -43,8 +43,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | test | qa | TEST_REPORT.md | done | 2026-08-08T23:47Z | 2026-09-09T00:18Z | **FAIL** (QA-5) |
 | build7 | builder | BUILD_LOG.md | done (QA-4/QA-5) | 2026-09-09T00:20Z | 2026-09-09T00:29Z | 11/11 green |
 | test2 | qa | TEST_REPORT.md | done | 2026-09-09T00:31Z | 2026-09-09T00:56Z | **WEAK_PASS** |
-| build8 | builder | BUILD_LOG.md | in_progress (QA-1/2/3/7) | 2026-09-09T00:58Z | — | — |
-| ship | — | PR | pending | — | — | — |
+| build8 | builder | BUILD_LOG.md | done (QA-1/2/3/7) | 2026-09-09T00:58Z | 2026-09-09T01:10Z | 366 sprint tests green |
+| ship | — | PR | awaiting operator decision | — | — | — |
 
 ## Decisions log
 
