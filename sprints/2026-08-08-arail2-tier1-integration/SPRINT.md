@@ -37,7 +37,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | review3 | architect (review) | REVIEW3.md | done | 2026-08-08T21:54Z | 2026-08-08T22:26Z | **BLOCK** (new: BLOCK-3) |
 | build4 | builder | BUILD_LOG.md | done (BLOCK-3) | 2026-08-08T22:28Z | 2026-08-08T22:43Z | fixed; regression found by orchestrator |
 | build5 | builder | BUILD_LOG.md | done (ORCH-1) | 2026-08-08T22:46Z | 2026-08-08T22:54Z | 322 tests |
-| review4 | architect (review) | REVIEW4.md | in_progress | 2026-08-08T22:56Z | — | — |
+| review4 | architect (review) | REVIEW4.md | done | 2026-08-08T22:56Z | 2026-08-08T23:20Z | **WEAK_PASS** |
+| build6 | builder | BUILD_LOG.md | in_progress (ASK-1, ASK-2) | 2026-08-08T23:22Z | — | — |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
@@ -288,6 +289,57 @@ the same end state as `build=True` alone. Noted that `_initialized` is a
 sibling of the already-filed module-global degraded-state debt (process-wide
 flags vs per-World roots); closing both together is acceptable, widening beyond
 `pkb_index.py` state handling is not.
+
+## Review 4 verdict (2026-08-08) — WEAK_PASS
+
+All three prior BLOCKs dead, verified by execution. BLOCK-3 measured
+definitively: `MODEL_API_BASE` pointed at a request-logging stub, a real
+`python -m arail.doctor` subprocess against an unindexed 40-file World made
+**exactly one embed request of 5 bytes** (the reachability probe) and created
+no `.cache/`. `build=False` did not cost doctor its teeth — still exit 3 on a
+legacy 128-dim World. ORCH-1 fixed, not relocated; root isolation holds both
+directions. The review was fully read-only against the operator's lab (all five
+Worlds' index mtimes unchanged; `finance` still shows only REVIEW3's disclosed
+accident).
+
+**Shared root cause: contained, but by an invariant nobody wrote down.**
+`arail.config.PKB_ROOT` is a module constant with **zero** in-process
+rebindings anywhere in `src/`, and concurrent Worlds are process-per-World.
+That single fact is what makes `_degraded_codes`, `_pending`, and
+`_pkb_root_cache` unambiguous — and it currently exists only in a backlog file.
+**It must be written down as an invariant.**
+
+The `_degraded_codes` deferral was ruled **safe**: the tripwire is
+architectural rather than incidental, the BACKLOG entry names the mechanism and
+the whole family of globals, and the builder shipped a test that *reproduces*
+the leak. That is the right way to defer.
+
+### Two new findings, same class, neither reachable
+- **ASK-1** — `ensure_ready` sets `_pkb_root_cache` **outside** the `if build:`
+  guard, one line below the ORCH-1 fix, whose own comment claims `build=False`
+  writes nothing. A read-only call on World F redirects the process-wide flush
+  target from E to F; since `_pending` holds root-*relative* paths the payload
+  would be a **cross-World write** — worse than ORCH-1's no-op. One-line fix.
+- **ASK-2** — the new stale-lock recovery reintroduces BLOCK-2(d) under a narrow
+  precondition. Mutual exclusion broken with real code: both processes hold, and
+  the lock file carries the second's PID during the first's write phase. TOCTOU
+  window measured at **1.3 µs median / 6.5 µs max** over 200 samples, needing a
+  250,000× widening to demonstrate — hence ASK, not BLOCK. `fcntl.flock`
+  deletes the entire heuristic.
+
+**Regression:** 379 passed / 0 failed across 25 isolated suites; the 11F/7E in a
+1237-test targeted selection are byte-identical against a clean `8cb5760`
+worktree.
+
+WEAK_PASS rather than PASS because `_table()` triple-open became a ticket and
+Buddy remains silently keyword-only on four of five real Worlds.
+
+### Orchestrator decision
+Send ASK-1 and ASK-2 back to the builder **before** QA — both are cheap, both
+are in the family that has already produced three defects, and QA's attack list
+covers the same ground (stale-lock behaviour, cross-World contamination probe),
+so fixing first avoids a re-loop. No fifth full review: the fixes are surgical
+and QA verifies them.
 
 ## Skipped phases
 
