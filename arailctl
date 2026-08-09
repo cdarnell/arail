@@ -1021,9 +1021,72 @@ LOGSEOF
                 # manifest if none qualify), so gate_state() moves from
                 # "unbootstrapped" to "empty"/"populated". Never runs on
                 # start — only here and once from `install`.
+                #
+                # --all-instances / --world <slug> (QA-6 review, BLOCK-2):
+                # a concurrent-Worlds lab has one PKB root per World instance
+                # (lab/instances/<slug>/pkb) plus the root lab's own
+                # (LAB_PKB / lab/pkb). bootstrap()'s Python side only ever
+                # touches the single PKB_ROOT resolved into its process, so
+                # reaching more than one root means invoking it once per
+                # root with LAB_PKB pointed at that root — the loop lives
+                # here, not in Python, because scripts/lib/instances.sh
+                # (already sourced above) is the one place instance
+                # enumeration is allowed to live; a second implementation in
+                # Python would be exactly the "sixth implementation" the
+                # registry rule forbids.
                 [[ -d .venv ]] || die "missing .venv — run ./arailctl setup"
                 # shellcheck disable=SC1091
                 source .venv/bin/activate
+
+                _pkb_boot_target=""   # "" | "root" | "<slug>" (--world)
+                _pkb_boot_all=0
+                _pkb_boot_rest=()
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --all-instances) _pkb_boot_all=1; shift ;;
+                        --world)
+                            [[ $# -ge 2 ]] || die "pkb bootstrap --world requires a slug"
+                            _pkb_boot_target="$2"; shift 2 ;;
+                        --world=*)
+                            _pkb_boot_target="${1#--world=}"; shift ;;
+                        *) _pkb_boot_rest+=("$1"); shift ;;
+                    esac
+                done
+                set -- ${_pkb_boot_rest[@]+"${_pkb_boot_rest[@]}"}
+
+                if [[ -n "$_pkb_boot_target" && "$_pkb_boot_all" == "1" ]]; then
+                    die "pkb bootstrap: --world and --all-instances are mutually exclusive"
+                fi
+
+                if [[ -n "$_pkb_boot_target" ]]; then
+                    if [[ "$_pkb_boot_target" == "root" ]]; then
+                        python -m arail.compiled_kb bootstrap "$@"
+                        exit $?
+                    fi
+                    inst_valid_slug "$_pkb_boot_target" || die "invalid World slug: $_pkb_boot_target"
+                    _pkb_dir="$(inst_pkb_dir "$_pkb_boot_target")"
+                    [[ -d "$_pkb_dir" ]] || die "no such World instance: $_pkb_boot_target (no $_pkb_dir)"
+                    LAB_PKB="$_pkb_dir" python -m arail.compiled_kb bootstrap "$@"
+                    exit $?
+                fi
+
+                if [[ "$_pkb_boot_all" == "1" ]]; then
+                    say "pkb bootstrap: root lab"
+                    _pkb_boot_rc=0
+                    python -m arail.compiled_kb bootstrap "$@" || _pkb_boot_rc=1
+                    while IFS= read -r _pkb_slug; do
+                        [[ -n "$_pkb_slug" ]] || continue
+                        _pkb_dir="$(inst_pkb_dir "$_pkb_slug")"
+                        if [[ ! -d "$_pkb_dir" ]]; then
+                            warn "pkb bootstrap: $_pkb_slug — no pkb dir at $_pkb_dir, skipping"
+                            continue
+                        fi
+                        say "pkb bootstrap: World '$_pkb_slug'"
+                        LAB_PKB="$_pkb_dir" python -m arail.compiled_kb bootstrap "$@" || _pkb_boot_rc=1
+                    done < <(inst_list_slugs)
+                    exit "$_pkb_boot_rc"
+                fi
+
                 exec python -m arail.compiled_kb bootstrap "$@"
                 ;;
             *) die "pkb op must be one of: ingest | compile | browse | prune | bootstrap" ;;
