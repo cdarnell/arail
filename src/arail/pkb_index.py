@@ -74,6 +74,29 @@ Design notes
   ``doctor`` would report "ok" while semantic search silently returned
   nothing forever. Every ``set_degraded``/``clear_degraded`` call below
   names the specific code it has evidence about.
+
+Load-bearing invariant: one PKB root per process
+-------------------------------------------------
+``_pending``, ``_timer``, ``_initialized_roots``, ``_pkb_root_cache``, and
+``_degraded_codes`` are all process-wide module globals, not per-root
+state. That is safe ONLY because ``arail.config.PKB_ROOT`` is a module
+constant resolved once at import and never rebound in-process anywhere in
+``src/``, and because concurrent Worlds run one process per World
+(``./arailctl start --world <slug>`` — see ``docs/concurrent-worlds.md``).
+Given that, "the PKB root this process cares about" never changes after
+startup, so a process-wide global is equivalent to a per-root one.
+
+If either half of that invariant is ever broken — ``PKB_ROOT`` gets
+rebound in-process (e.g. a multi-tenant server loop), or two Worlds start
+sharing one process — these globals stop being safe: degraded-state codes
+from one root would leak into another root's ``embedding_status()``, and
+(per REVIEW4.md ASK-1) a read-only ``ensure_ready(build=False)`` check on
+one root could redirect ``_pkb_root_cache``, the resolution target
+``_flush()`` joins ``_pending``'s root-relative paths against, causing a
+pending upsert queued for root A to be written under root B. This is
+tracked as filed debt, not fixed, in ``sprints/BACKLOG.md`` ("pkb_index's
+degraded state is a module global; PKB roots are per-World") — see that
+entry before changing either half of this invariant.
 """
 
 from __future__ import annotations
