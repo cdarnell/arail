@@ -134,6 +134,74 @@ def rejected_paths(pkb_root: Path | None = None) -> set[str]:
         return set()
 
 
+def manifest_present(pkb_root: Path | None = None) -> bool:
+    """True iff ``compiled/kb/approved.json`` exists and parses to a
+    dict/list shape. False on missing, unreadable, or unparseable — a
+    corrupt manifest is deliberately conflated with "never bootstrapped":
+    both mean "do not claim the gate is merely empty; tell the operator to
+    run bootstrap/doctor." Never raises."""
+    root = pkb_root or _pkb_root()
+    try:
+        path = _kb_dir(root) / _APPROVED_FILE
+        if not path.is_file():
+            return False
+        raw = json.loads(path.read_text(encoding="utf-8"))
+        return isinstance(raw, (dict, list))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def gate_state(pkb_root: Path | None = None, *, cheap: bool = False) -> dict[str, Any]:
+    """Read-only summary of the Compiled-KB gate for operator-facing
+    surfaces. Never raises; every field has a defined value on total
+    failure. ``cheap=True`` skips the ``pending_count`` tree walk (hot
+    callers: lab_brain per turn, researcher per query) and reports
+    ``pending_count = -1`` (meaning "not computed")."""
+    try:
+        root = pkb_root or _pkb_root()
+        enabled = gate_enabled()
+        present = manifest_present(root)
+        approved = approved_paths(root) if present else set()
+        dangling = set(dangling_paths(root)) if present else set()
+        live = approved - dangling
+        pending = -1 if cheap else pending_count(root)
+        if not enabled:
+            state = "off"
+        elif not present:
+            state = "unbootstrapped"
+        elif len(live) == 0:
+            state = "empty"
+        else:
+            state = "populated"
+        hints = {
+            "off": "The approval gate is disabled (ARAIL_APPROVED_ONLY=off) — agents read the raw corpus.",
+            "unbootstrapped": "Compiled KB has never been bootstrapped — run ./arailctl pkb bootstrap.",
+            "empty": "Compiled KB is bootstrapped but nothing is approved yet — approve knowledge on the Knowledge page.",
+            "populated": "",
+        }
+        return {
+            "schema": "arail.kb-gate/v1",
+            "enabled": enabled,
+            "manifest_present": present,
+            "approved_count": len(approved),
+            "live_count": len(live),
+            "pending_count": pending,
+            "state": state,
+            "hint": hints[state],
+        }
+    except Exception:  # noqa: BLE001 — total failure still reads as unbootstrapped
+        return {
+            "schema": "arail.kb-gate/v1",
+            "enabled": gate_enabled(),
+            "manifest_present": False,
+            "approved_count": 0,
+            "live_count": 0,
+            "pending_count": -1 if cheap else 0,
+            "state": "unbootstrapped",
+            "hint": "Compiled KB has never been bootstrapped — run ./arailctl pkb bootstrap.",
+        }
+
+
 def list_approved(pkb_root: Path | None = None) -> list[dict[str, Any]]:
     root = pkb_root or _pkb_root()
     return sorted(_approved_map(root).values(),
