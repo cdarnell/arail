@@ -412,84 +412,138 @@ def test_second_concurrent_run_is_refused_by_lock(tmp_path):
 
 
 # --------------------------------------------------------------------------
-# REVIEW3.md "also fix" #2 — stale lock recovery
+# REVIEW4.md ASK-2 — flock-based mutual exclusion, no stale-lock heuristic
 # --------------------------------------------------------------------------
 
-def test_stale_lock_from_dead_pid_is_recovered_automatically(tmp_path):
-    """A lock file naming a PID that no longer exists (the SIGKILL/OOM/
-    crashed-process shape) must be recovered automatically -- otherwise
-    the degraded-KB message's own recommended remedy (`pkb reembed`) is
-    permanently refused."""
-    import os
-
-    pkb_root = _make_pkb(tmp_path, n=5)
-    lock_path = reembed._lock_path(pkb_root)
-    lock_path.parent.mkdir(parents=True, exist_ok=True)
-
-    # A PID essentially guaranteed not to be alive.
-    dead_pid = 2**30
-    lock_path.write_text(str(dead_pid))
-
-    result = reembed.run(pkb_root, include_docs=False)
-
-    assert result["interrupted"] is False
-    assert result["completed"] == result["total"] == 5
-    assert not lock_path.exists(), "the lock must be cleanly released after the recovered run"
-
-
-def test_corrupt_lock_file_is_recovered_automatically(tmp_path):
-    """An unreadable/corrupt lock file (e.g. truncated by a crash mid-
-    write) is treated the same as a dead-PID lock -- there is no way for
-    it to represent a healthy in-progress run."""
+def test_lock_file_with_garbage_content_is_irrelevant_to_flock(tmp_path):
+    """The lock file's *content* (a PID, garbage, or nothing) is purely
+    informational under flock -- only the kernel's advisory-lock state on
+    the fd matters. A lock file that's empty or unparseable must not be
+    treated as special in any way: a fresh acquire against it must succeed
+    immediately, exactly as if the file didn't exist, because nothing is
+    holding the flock on it."""
     pkb_root = _make_pkb(tmp_path, n=4)
     lock_path = reembed._lock_path(pkb_root)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path.write_text("")  # empty / unparseable
+    lock_path.write_text("")  # empty / unparseable content, nobody holds it
 
     result = reembed.run(pkb_root, include_docs=False)
 
     assert result["completed"] == result["total"] == 4
-    assert not lock_path.exists()
 
 
-def test_live_pid_lock_is_not_recovered(tmp_path):
-    """A lock naming a genuinely alive process (this test process itself,
-    as a stand-in) must still be refused -- staleness recovery must not
-    become a way to steal a live process's lock."""
-    import os
+def test_lock_file_naming_a_pid_that_still_exists_is_not_special(tmp_path):
+    """A lock file whose written content happens to name a live PID (e.g.
+    this test process) must NOT be refused as if that content meant
+    anything -- under flock, only actually holding the advisory lock
+    matters. Since nothing has flock'd this file, a run must proceed
+    normally despite the file naming a very-much-alive PID."""
+    pkb_root = _make_pkb(tmp_path, n=3)
+    lock_path = reembed._lock_path(pkb_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text(str(os.getpid()))  # content is decorative only
+
+    result = reembed.run(pkb_root, include_docs=False)
+
+    assert result["interrupted"] is False
+    assert result["completed"] == result["total"] == 3
+
+
+def test_holding_flock_directly_refuses_a_concurrent_run(tmp_path):
+    """The actual mutual-exclusion guarantee: while a second file
+    descriptor genuinely holds the flock (bypassing _ReembedLock entirely,
+    to simulate "some other process has it"), `run()` must be refused with
+    ReembedLocked, never proceed."""
+    import fcntl
 
     pkb_root = _make_pkb(tmp_path, n=3)
     lock_path = reembed._lock_path(pkb_root)
     lock_path.parent.mkdir(parents=True, exist_ok=True)
-    lock_path.write_text(str(os.getpid()))  # definitely alive: it's us
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR)
+    fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    try:
+        with pytest.raises(reembed.ReembedLocked):
+            reembed.run(pkb_root, include_docs=False)
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
 
-    with pytest.raises(reembed.ReembedLocked):
-        reembed.run(pkb_root, include_docs=False)
-
-    assert lock_path.exists(), "a live-process lock must not be removed"
-    lock_path.unlink()  # test cleanup
+    # Once the external holder releases, a normal run proceeds.
+    result = reembed.run(pkb_root, include_docs=False)
+    assert result["interrupted"] is False
 
 
-def test_pid_alive_helper():
-    import os
-    assert reembed._pid_alive(os.getpid()) is True
-    assert reembed._pid_alive(2**30) is False
+def test_sigkilled_holder_releases_lock_automatically(tmp_path):
+    """The core promise of flock over the old PID heuristic: a holder that
+    is SIGKILLed (no chance to run any cleanup code, unlike a normal
+    exception path) must have its lock released by the kernel, with zero
+    staleness logic on our side. A subprocess acquires the lock and blocks
+    forever; we SIGKILL it; a fresh acquire in this process must succeed
+    right away."""
+    import fcntl
+    import signal
+    import subprocess
+    import sys as _sys
+    import time as _time
 
+    pkb_root = _make_pkb(tmp_path, n=1)
+    lock_path = reembed._lock_path(pkb_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
 
-def test_read_lock_pid_helper(tmp_path):
-    p = tmp_path / "lock"
-    p.write_text("12345")
-    assert reembed._read_lock_pid(p) == 12345
-    p.write_text("not-a-number")
-    assert reembed._read_lock_pid(p) is None
-    missing = tmp_path / "nope"
-    assert reembed._read_lock_pid(missing) is None
+    holder_script = (
+        "import fcntl, os, sys, time\n"
+        f"p = {str(lock_path)!r}\n"
+        "os.makedirs(os.path.dirname(p), exist_ok=True)\n"
+        "fd = os.open(p, os.O_CREAT | os.O_RDWR)\n"
+        "fcntl.flock(fd, fcntl.LOCK_EX)\n"
+        "sys.stdout.write('locked\\n')\n"
+        "sys.stdout.flush()\n"
+        "time.sleep(60)\n"
+    )
+    proc = subprocess.Popen(
+        [_sys.executable, "-c", holder_script],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
+    )
+    try:
+        line = proc.stdout.readline()
+        assert line.strip() == "locked", f"holder didn't confirm lock: {line!r}"
+
+        # Confirm the lock is genuinely held right now.
+        with pytest.raises(reembed.ReembedLocked):
+            reembed.run(pkb_root, include_docs=False)
+
+        proc.send_signal(signal.SIGKILL)
+        proc.wait(timeout=10)
+
+        deadline = _time.monotonic() + 5
+        last_err = None
+        while _time.monotonic() < deadline:
+            try:
+                result = reembed.run(pkb_root, include_docs=False)
+                assert result["interrupted"] is False
+                return
+            except reembed.ReembedLocked as e:  # pragma: no cover - flaky retry
+                last_err = e
+                _time.sleep(0.05)
+        raise AssertionError(
+            f"lock was not released after holder was SIGKILLed: {last_err}")
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=10)
 
 
 def test_lock_released_after_run_completes(tmp_path):
     pkb_root = _make_pkb(tmp_path, n=2)
     reembed.run(pkb_root, include_docs=False)
-    assert not reembed._lock_path(pkb_root).exists()
+    # REVIEW4.md ASK-2: the lock file is deliberately never unlinked (see
+    # _ReembedLock's docstring) -- it persists harmlessly under .cache/.
+    # What must be true is that it's no longer *held*: a fresh acquire on
+    # the same path must succeed immediately.
+    assert reembed._lock_path(pkb_root).exists()
+    lock = reembed._ReembedLock(pkb_root)
+    lock.acquire()
+    lock.release()
     # A second run afterward must succeed normally (lock isn't stuck held).
     result = reembed.run(pkb_root, include_docs=False)
     assert result["interrupted"] is False
@@ -515,7 +569,10 @@ def test_lock_released_after_run_raises(tmp_path):
     with pytest.raises(reembed.EmptyCorpusRefused):
         reembed.run(pkb_root, include_docs=False)
 
-    assert not reembed._lock_path(pkb_root).exists()
+    # Not unlinked (see _ReembedLock docstring) -- but must no longer be held.
+    lock = reembed._ReembedLock(pkb_root)
+    lock.acquire()
+    lock.release()
 
 
 def test_two_concurrent_runs_in_process_second_is_locked_out(tmp_path):

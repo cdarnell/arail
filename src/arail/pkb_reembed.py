@@ -148,89 +148,73 @@ def _lock_path(pkb_root: Path) -> Path:
     return pkb_root / ".cache" / "reembed.lock"
 
 
-def _read_lock_pid(path: Path) -> int | None:
-    """The PID written into a lock file, or None if it can't be read/
-    parsed (a corrupt/truncated lock file, e.g. from a crash mid-write,
-    is itself treated as stale by the caller)."""
-    try:
-        return int(path.read_text().strip())
-    except (OSError, ValueError):
-        return None
-
-
-def _pid_alive(pid: int) -> bool:
-    """Best-effort liveness check via signal 0 (no-op, just existence).
-    Errors we can't interpret default to "alive" -- the safe direction is
-    to under-recover (leave a merely-suspicious lock in place, which the
-    documented manual override still handles) rather than over-recover
-    (delete a live process's lock and race it)."""
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except (PermissionError, OSError):
-        return True
-    return True
-
-
 class _ReembedLock:
-    """O_EXCL lock file. Held for the duration of the write phase (not
-    --dry-run, which touches no shared state).
+    """``fcntl.flock`` lock file. Held for the duration of the write phase
+    (not --dry-run, which touches no shared state).
 
-    REVIEW3.md "also fix": a lock surviving a SIGKILL/OOM/crashed process
-    used to wedge every subsequent ``pkb reembed`` against that root
-    forever, including the very run the degraded-KB message tells the
-    user to perform. ``acquire()`` now recovers a stale lock automatically
-    (the PID it names is no longer alive, or the file is corrupt/
-    unreadable) before falling back to the manual-removal message for a
-    lock that's genuinely held by a live process.
+    REVIEW4.md ASK-2: an earlier PID-heuristic version of this lock (check
+    whether the PID named in the lock file is alive, unlink-and-retry if
+    not) reintroduced REVIEW2.md BLOCK-2 (broken mutual exclusion) via a
+    TOCTOU race between the staleness check and the unlink -- measured at
+    1.3us median / 6.5us max over 200 samples, both processes holding the
+    lock simultaneously. ``flock`` deletes the check-then-act heuristic
+    entirely: the kernel is the sole arbiter of who holds the lock, and it
+    releases the lock automatically when the holding process dies for any
+    reason (normal exit, SIGKILL, OOM-kill), so stale-lock recovery stops
+    being something we implement. PID reuse is not a hazard here either --
+    we never make a decision based on what PID is/was recorded.
+
+    The lock file itself is created once (``O_CREAT``) and never unlinked
+    by ``release()``: unlinking a file that ``flock`` is still the sole
+    exclusion mechanism for is its own TOCTOU hazard (a third process could
+    ``open(O_CREAT)`` a *fresh* inode after the unlink and acquire a lock on
+    it immediately, without ever contending with a process still holding
+    the flock on the old, now-orphaned inode). The lock file persists
+    harmlessly under ``.cache/`` (already git-ignored, already excluded
+    from PKB indexing) for the life of the PKB root.
     """
 
     def __init__(self, pkb_root: Path):
         self.path = _lock_path(pkb_root)
         self._fd: int | None = None
 
-    def _is_stale(self) -> bool:
-        pid = _read_lock_pid(self.path)
-        if pid is None:
-            return True  # unreadable/corrupt -- can't be a healthy lock
-        return not _pid_alive(pid)
-
     def acquire(self) -> None:
+        import fcntl
+
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        recovered_once = False
-        while True:
-            try:
-                self._fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-                os.write(self._fd, str(os.getpid()).encode("utf-8"))
-                return
-            except FileExistsError:
-                if not recovered_once and self._is_stale():
-                    recovered_once = True
-                    try:
-                        self.path.unlink()
-                    except FileNotFoundError:
-                        pass
-                    continue  # retry exactly once against the now-clear path
-                raise ReembedLocked(
-                    f"another `pkb reembed` appears to already be running "
-                    f"against this root (lock file exists: {self.path}, "
-                    f"held by a live process). If you're certain none is "
-                    f"(e.g. a process from a different PID namespace), "
-                    f"remove the lock file and re-run."
-                ) from None
+        fd = os.open(str(self.path), os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            os.close(fd)
+            raise ReembedLocked(
+                f"another `pkb reembed` appears to already be running "
+                f"against this root (lock held: {self.path}). Wait for it "
+                f"to finish and re-run; there is no manual lock-file "
+                f"removal needed or supported -- the OS releases the lock "
+                f"automatically when the holding process exits."
+            ) from None
+        # PID is written purely for human inspection (e.g. `cat` the lock
+        # file while debugging); it is never read back or used for any
+        # correctness decision.
+        os.ftruncate(fd, 0)
+        os.write(fd, str(os.getpid()).encode("utf-8"))
+        self._fd = fd
 
     def release(self) -> None:
         if self._fd is not None:
+            import fcntl
+
+            try:
+                fcntl.flock(self._fd, fcntl.LOCK_UN)
+            except OSError:
+                pass
             try:
                 os.close(self._fd)
             except OSError:
                 pass
             self._fd = None
-        try:
-            self.path.unlink()
-        except FileNotFoundError:
-            pass
+        # Deliberately no unlink() here -- see class docstring.
 
     def __enter__(self) -> "_ReembedLock":
         self.acquire()
