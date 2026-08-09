@@ -36,7 +36,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | build3 | builder | BUILD_LOG.md | done (BLOCK remediation) | 2026-08-08T21:16Z | 2026-08-08T21:52Z | 21 tests; suite 52F/4341P |
 | review3 | architect (review) | REVIEW3.md | done | 2026-08-08T21:54Z | 2026-08-08T22:26Z | **BLOCK** (new: BLOCK-3) |
 | build4 | builder | BUILD_LOG.md | done (BLOCK-3) | 2026-08-08T22:28Z | 2026-08-08T22:43Z | fixed; regression found by orchestrator |
-| build5 | builder | BUILD_LOG.md | in_progress (ORCH-1 regression) | 2026-08-08T22:46Z | — | — |
+| build5 | builder | BUILD_LOG.md | done (ORCH-1) | 2026-08-08T22:46Z | 2026-08-08T22:54Z | 322 tests |
+| review4 | architect (review) | REVIEW4.md | in_progress | 2026-08-08T22:56Z | — | — |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
@@ -269,6 +270,17 @@ the health check on every query, so after any search a later genuine
 content-write path (World mount, voice/OCR note capture) would silently fail
 to index its new content — and then tell the user to run `pkb reembed` to fix
 something that should have just worked.
+
+**Orchestrator's reachability sketch was WRONG, corrected by the builder with
+evidence.** I claimed the portal process could hit this via
+`pkb._semantic_search`'s per-query health check. It cannot: `pkb.py` contains
+**zero** references to `ensure_ready` (it calls `check_read_path_health()`
+directly), and `ensure_ready(build=False)`'s only caller is
+`doctor.check_knowledge_base()`, invoked solely as a fresh
+`python -m arail.doctor` subprocess. Module globals do not cross processes, so
+no shipped call path combines them. It remains a genuine contract defect and
+was fixed on those grounds, not on my incorrect severity claim. Verified after
+the fix: read-only-then-build now builds.
 
 Invariant handed to the builder: `ensure_ready(root, build=False)` followed by
 `ensure_ready(root, build=True)` in one process must build the index and reach
