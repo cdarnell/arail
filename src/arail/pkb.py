@@ -670,13 +670,53 @@ def search(query: str, pkb_root: Path | None = None, *,
     return results
 
 
+def retrieve_for_agents(query: str, pkb_root: Path | None = None) -> dict[str, Any]:
+    """Retrieval for agents that experiment/develop (Researcher, chat RAG, goal
+    drafter). Honors the Compiled-KB gate: when the gate is enabled (default),
+    agents build ONLY on approved knowledge. When disabled via
+    ``ARAIL_APPROVED_ONLY=off``, falls back to the full raw corpus.
+
+    Returns ``{"hits": [...], "gate": <gate_state(cheap=True)>, "empty_reason":
+    None|"gate_empty"|"no_match"|"gate_off_no_match"}`` so a caller can tell
+    "the gate is empty, the search never ran" apart from "the search ran and
+    found nothing" — both were a silent zero before this. Never raises: an
+    internal error fails closed AND loud (``hits=[]``,
+    ``empty_reason="gate_empty"``), never silent.
+    """
+    from arail.compiled_kb import gate_enabled, gate_state, approved_paths
+
+    try:
+        enabled = gate_enabled()
+        gate = gate_state(pkb_root, cheap=True)
+        if enabled and not approved_paths(pkb_root):
+            return {"hits": [], "gate": gate, "empty_reason": "gate_empty"}
+        hits = search(query, pkb_root, approved_only=enabled)
+        if hits:
+            return {"hits": hits, "gate": gate, "empty_reason": None}
+        reason = "no_match" if enabled else "gate_off_no_match"
+        return {"hits": hits, "gate": gate, "empty_reason": reason}
+    except Exception:  # noqa: BLE001 — fail closed and loud, never silent
+        from arail.compiled_kb import gate_state as _gs
+        try:
+            gate = _gs(pkb_root, cheap=True)
+        except Exception:  # noqa: BLE001
+            gate = {"schema": "arail.kb-gate/v1", "enabled": True,
+                     "manifest_present": False, "approved_count": 0,
+                     "live_count": 0, "pending_count": -1,
+                     "state": "unbootstrapped", "hint": ""}
+        return {"hits": [], "gate": gate, "empty_reason": "gate_empty"}
+
+
 def search_for_agents(query: str, pkb_root: Path | None = None) -> list[dict[str, Any]]:
     """Retrieval for agents that experiment/develop (Researcher, chat RAG, goal
     drafter). Honors the Compiled-KB gate: when the gate is enabled (default),
     agents build ONLY on approved knowledge. When disabled via
-    ``ARAIL_APPROVED_ONLY=off``, falls back to the full raw corpus."""
-    from arail.compiled_kb import gate_enabled
-    return search(query, pkb_root, approved_only=gate_enabled())
+    ``ARAIL_APPROVED_ONLY=off``, falls back to the full raw corpus.
+
+    Kept as ``retrieve_for_agents(...)["hits"]`` — unchanged shape and gate
+    semantics, so existing callers and ``tests/test_pkb_gate.py`` need no
+    edit."""
+    return retrieve_for_agents(query, pkb_root)["hits"]
 
 
 # ── Agent Write Helpers ──────────────────────────────────────────────────
