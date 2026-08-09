@@ -981,3 +981,133 @@ pre-existing, non-test production file outside those four was touched).
   correction).
 - `8af64a3` — the three "also fix" items (empty-code clearing, stale-lock
   recovery, the two missing-coverage tests) + two new debt filings.
+
+---
+
+# Build5: the BLOCK-3 fix's own regression (coordinator finding)
+
+**Not a review-phase finding this time — the coordinator caught it directly
+by reproducing it, before sending build4 to re-review.** The mechanism is
+exactly what they described: `ensure_ready`'s one-shot guard
+(`_initialized`, a single process-global bool) was set unconditionally
+near the top of the function, before any `build`-gated branching — so a
+`build=False` (read-only) call consumed the same one-shot slot a later
+genuine `build=True` call depended on, and the later call silently no-op'd
+without building anything.
+
+## Reachability finding (verified by reading the code and grepping every call site, not assumed)
+
+**Not reachable through any currently-shipped call path.** `ensure_ready
+(build=False)` has exactly one caller in the entire tree —
+`doctor.check_knowledge_base()` — and it is invoked only via a fresh
+`python -m arail.doctor` subprocess (`arailctl`'s `doctor)` case execs a
+new Python process after activating the venv; there is no in-process call
+from the portal into `doctor.py` anywhere — grepped
+`src/arail/portal/*.py` for any import of `arail.doctor`, found none).
+Module-level globals do not survive across processes, so the exact
+sequence the coordinator's reproduction script runs in one process
+(`ensure_ready(build=False)` then `ensure_ready(build=True)`) cannot
+occur today between doctor and the portal — they are always different
+OS processes with independently-fresh module state.
+
+I also checked the more specific worry in the coordinator's message —
+that `pkb._semantic_search`'s per-query health check might be an
+in-process path into this guard, since it now runs on every query.
+`pkb.py` does not call `ensure_ready` at all (confirmed by grep:
+zero matches); `_semantic_search` calls `pkb_index.check_read_path_
+health()` directly, which never reads or writes `_initialized`/
+`_initialized_roots`. So the per-query health check is not a vector into
+this bug either.
+
+**This does not mean the bug wasn't real or wasn't worth fixing.** It is
+a genuine contract defect in `ensure_ready` itself — the function's own
+docstring invites exactly the usage that breaks ("call once at portal
+startup, or from any genuine content-write path" — nothing in the stated
+contract restricts mixing that with a read-only call), and the next
+caller to combine them in-process (an admin diagnostics endpoint that
+calls `doctor`'s logic directly instead of shelling out, a future refactor
+that merges doctor into the portal process) would hit it silently, with
+the exact symptom the coordinator named: new content stops getting
+indexed and the user is told to run `pkb reembed` to fix something that
+should have just worked. Fixed regardless of today's non-reachability,
+per the explicit instruction.
+
+## Fix
+
+`_initialized: bool` → `_initialized_roots: set[Path]`, keyed by each
+root's *resolved* path. The guard is now claimed **only** by a `build=True`
+call (`if build: ... _initialized_roots.add(root_key)`); a `build=False`
+call never reads or writes it, so it always re-executes its own
+inspection fresh (cheap and idempotent by design — there was never a
+correctness reason to memoize a read-only check across calls, only a
+correctness reason to memoize a *build*). This directly satisfies the
+stated invariant: `build=False` then `build=True` builds; the reverse
+order still works; two different roots in one process don't interfere,
+because a genuinely different root has a genuinely different key.
+`_pkb_root_cache` (the separate single-slot cache `_flush`/`schedule_
+upsert` use to find "the" active root) is unchanged — it is a pre-existing,
+already-filed, single-root-per-process assumption for the *debounce*
+machinery specifically, not implicated in this regression, and widening
+it was not required to satisfy the stated invariant.
+
+**~29 pre-existing tests set `pki._initialized = True` by hand** (a
+defensive pattern to bypass `ensure_ready`'s old guard in tests that call
+`schedule_upsert`/`_flush` directly, never `ensure_ready` itself). Checked
+each: none of them actually depends on `ensure_ready`'s guard for
+correctness (neither `_flush` nor `schedule_upsert` ever reads
+`_initialized`/`_initialized_roots`), so renaming the attribute leaves
+those lines as harmless dead assignments (Python modules accept arbitrary
+attribute assignment; `pki._initialized = True` now just creates an
+inert, never-read attribute) rather than breaking anything. Verified: all
+of them still pass, unmodified.
+
+## The "also re-check" — degraded-code cross-root leak
+
+The coordinator asked me to re-check whether the `"empty"` code clearing
+added in build4 could mislabel a different root, given the same class of
+bug. It can, but it is a **pre-existing, already-filed** limitation, not
+something this fix or the empty-code-clearing change introduced: the
+`_degraded_codes` dict (added in W6/BLOCK-1, before `build=False` existed
+at all) is process-global, not keyed by root — a search or health check
+against root A that sets any code already mislabels a status read for
+root B, with or without `build=False` in the picture. I wrote
+`test_degraded_empty_code_from_root_a_readonly_check_leaks_into_root_b_
+status` in `tests/test_ensure_ready_build_isolation.py` to prove this
+concretely rather than leave it asserted, and it reproduces exactly as
+expected.
+
+I deliberately did **not** widen `_degraded_codes` to be root-keyed in
+this pass, even though the coordinator's message explicitly permitted it
+("if the clean fix is to key both on the root, do that and close both").
+Reasoning: (1) doing so would ripple `set_degraded`/`clear_degraded`/
+`degraded_codes`/`embedding_status` signature changes into every caller
+outside `pkb_index.py` — `pkb.py`, `doctor.py`, `pkb_reembed.py` — which
+is a materially larger and riskier change than the `_initialized` fix,
+under the same time pressure that produced this regression in the first
+place; (2) the instruction's own "do not widen beyond `pkb_index.py`'s
+state handling" reads most naturally as a caution against exactly that
+kind of cross-file ripple; (3) like the `_initialized` bug before this
+fix, it is not reachable through any shipped call path today — both real
+callers (`doctor`, the portal) only ever handle one root per process; and
+(4) it is already filed in `sprints/BACKLOG.md` ("`pkb_index`'s degraded
+state is a module global; PKB roots are per-World") with its own "what a
+future sprint needs to do" section. I'm flagging this explicitly rather
+than silently declining it — if the coordinator wants it done now instead
+of filed, that's a one-line instruction away and the test I wrote gives a
+concrete before/after to verify against.
+
+## Regression check
+
+Targeted suites (everything touched by any commit across all five
+invocations): **322 passed**, 0 failed, working tree clean before the
+commit. New: `tests/test_ensure_ready_build_isolation.py` (7 tests) —
+required tests 1–4 exactly as specified, plus the same-root-second-call
+no-op guard (protects against overcorrecting into "build=True always
+re-runs"), the different-root-both-build sanity check, and the
+degraded-code cross-root documentation test.
+
+## Commit this invocation
+
+- (this commit) — `_initialized` → `_initialized_roots` (per-root,
+  build=True-only guard), `_reset_for_tests` updated, new test file, this
+  BUILD_LOG entry.

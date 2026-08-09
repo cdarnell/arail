@@ -92,7 +92,18 @@ _log = logging.getLogger(__name__)
 _lock: threading.Lock = threading.Lock()
 _pending: set[str] = set()          # POSIX relative paths
 _timer: threading.Timer | None = None
-_initialized: bool = False
+# One-shot guard for a COMPLETED-INTENT build=True ensure_ready() pass, per
+# root (resolved path). REVIEW4 (coordinator finding, post-BLOCK-3): the
+# guard used to be a single process-global bool set unconditionally by
+# ENTERING ensure_ready at all -- so a read-only build=False call (e.g.
+# ./arailctl doctor) "used up" the one-shot slot without doing any work,
+# and a later, genuine build=True call in the same process for the SAME OR
+# ANY OTHER root would then silently no-op. A read-only check must never
+# satisfy, suppress, or substitute for a build. Keyed by root so a
+# read-only check against one World also cannot affect another. Only
+# build=True ever adds to this set; build=False never reads or writes it,
+# so it always re-executes its (idempotent, cheap) read-only logic fresh.
+_initialized_roots: set[Path] = set()
 _pkb_root_cache: Path | None = None  # set by ensure_ready
 
 # ── C1: degraded-embedding state ─────────────────────────────────────────
@@ -612,16 +623,24 @@ def ensure_ready(pkb_root: Path | None = None, *, build: bool = True) -> None:
     didn't exist yet, which also meant a diagnostic command could become a
     corpus-egress path under ``LAB_MODE=hybrid``.
     """
-    global _initialized, _pkb_root_cache
+    global _pkb_root_cache
 
     from arail.vector_index import available
 
+    root = pkb_root or _pkb_root_from_env()
+    root_key = root.resolve()
+
     with _lock:
-        if _initialized:
-            return
-        root = pkb_root or _pkb_root_from_env()
+        if build:
+            # The one-shot guard applies ONLY to a build=True pass, and
+            # only build=True ever claims it. A read-only (build=False)
+            # call always re-runs its (cheap, idempotent) inspection —
+            # it must never be able to consume the one-shot slot a later
+            # genuine build depends on.
+            if root_key in _initialized_roots:
+                return
+            _initialized_roots.add(root_key)
         _pkb_root_cache = root
-        _initialized = True
 
     if not available():
         _log.warning("pkb_index: LanceDB not available; ensure_ready is a no-op")
@@ -838,12 +857,12 @@ def schedule_upsert(path: Path, *, pkb_root: Path | None = None) -> None:
 
 def _reset_for_tests() -> None:
     """Reset all module-level state. Call from test fixtures only."""
-    global _pending, _timer, _initialized, _pkb_root_cache
+    global _pending, _timer, _pkb_root_cache
     with _lock:
         if _timer is not None:
             _timer.cancel()
             _timer = None
         _pending.clear()
-        _initialized = False
+        _initialized_roots.clear()
         _pkb_root_cache = None
     clear_degraded()
