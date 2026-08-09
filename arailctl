@@ -260,7 +260,7 @@ EOF
     logs [comp]     tail activity log — filter by component
     reset [mode]    wipe state — models|data|pkb|plugins|env|full|destroy
     world <op>      DaC WorldBundle: list | mount <dir> [--apply-face] | verify <dir> | verify-shipped [--examples] | swap <dir> | unmount
-    pkb <op>        ARAIL lab content: ingest | compile | browse
+    pkb <op>        ARAIL lab content: ingest | compile | browse | prune | bootstrap
     wiki <op>       ARAIL docs-as-code: build | info | new <title>
     kb <op>         QuKaiZen Karpathy Wiki: status | compile | lint | query
                     | search | ingest | index | where    (auto-discovers KB root)
@@ -1015,7 +1015,18 @@ LOGSEOF
                 source .venv/bin/activate
                 exec python -m arail.compiled_kb prune "$@"
                 ;;
-            *) die "pkb op must be one of: ingest | compile | browse | prune" ;;
+            bootstrap)
+                # Backfill the Compiled KB: auto-approve the currently
+                # staged World's term pages (or write an empty-but-present
+                # manifest if none qualify), so gate_state() moves from
+                # "unbootstrapped" to "empty"/"populated". Never runs on
+                # start — only here and once from `install`.
+                [[ -d .venv ]] || die "missing .venv — run ./arailctl setup"
+                # shellcheck disable=SC1091
+                source .venv/bin/activate
+                exec python -m arail.compiled_kb bootstrap "$@"
+                ;;
+            *) die "pkb op must be one of: ingest | compile | browse | prune | bootstrap" ;;
         esac
         ;;
     wiki)

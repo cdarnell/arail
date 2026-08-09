@@ -774,7 +774,24 @@ def _cli(argv: list[str] | None = None) -> int:
     p_prune.add_argument("--dry-run", action="store_true",
                          help="list what would be dropped, change nothing")
     sub.add_parser("status", help="show live vs dangling approval counts")
+    p_boot = sub.add_parser(
+        "bootstrap",
+        help="backfill the Compiled KB: auto-approve the staged World's term "
+             "pages, or write an empty (present) manifest if none qualify")
+    p_boot.add_argument("--dry-run", action="store_true",
+                        help="print what would be approved, write nothing")
     args = ap.parse_args(argv)
+
+    if args.op == "bootstrap":
+        root = _pkb_root()
+        result = bootstrap(root, dry_run=args.dry_run)
+        label = "would approve" if args.dry_run else "approved"
+        print(f"root     : {result['root']}")
+        print(f"world    : {result['world'] or '(none staged)'}")
+        print(f"{label:9}: {result['approved']}")
+        if result["skipped_reason"]:
+            print(f"note     : {result['skipped_reason']}")
+        return 0
 
     root = _pkb_root()
     if not root.is_dir():
