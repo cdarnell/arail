@@ -260,6 +260,17 @@ parts.
   across instances would silently let one lab read another's provider
   keys — treat any code path that copies or links a `secrets.env` between
   instances (or from the root lab) as a bug, not a convenience.
+- **One PKB root per process is a load-bearing invariant, not an
+  accident.** `src/arail/pkb_index.py`'s degraded-state tracking
+  (`_degraded_codes`, `_pending`, `_timer`, `_initialized_roots`,
+  `_pkb_root_cache`) is process-global, not per-root — safe only because
+  `arail.config.PKB_ROOT` is a module constant never rebound in-process
+  anywhere in `src/`, and because concurrent Worlds run one process per
+  World. Rebinding `PKB_ROOT` in-process, or running two Worlds in one
+  process, would let one root's degraded codes (or pending upserts) leak
+  into another's. See the module docstring in `pkb_index.py` and the
+  `sprints/BACKLOG.md` entry ("pkb_index's degraded state is a module
+  global; PKB roots are per-World") before touching either half of this.
 
 ## Where to start when you pick a task
 

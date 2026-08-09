@@ -30,7 +30,7 @@ from arail.agents.curator import CuratorAgent
 from arail.scheduler import (current_window, jobs_halted,
                               startup_delay_seconds, window_label)
 from arail.skills.experiment_tracker import ExperimentTracker
-from arail.skills.goal_parser import infer_domain, DOMAIN_KEYWORDS
+from arail.skills.goal_parser import infer_domain, matched_keywords
 from arail.swarm_goals import known_swarm_worker_ids
 
 
@@ -1183,8 +1183,7 @@ class ResearcherAgent:
                 f"sub-objectives became one hypothesis."
             )
         else:
-            domain_kws = DOMAIN_KEYWORDS.get(domain, [])
-            relevant = [kw for kw in domain_kws if kw.lower() in goal_text.lower()]
+            relevant = matched_keywords(goal_text, domain)
             if relevant:
                 for kw in relevant[:6]:
                     hypotheses.append(

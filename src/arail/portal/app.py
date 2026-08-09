@@ -11224,7 +11224,70 @@ async def api_pkb_browse():
 async def api_pkb_search(q: str = ""):
     if not q.strip():
         return []
-    return pkb_search(q.strip())
+    results = pkb_search(q.strip())
+    # C1 (arail2-tier1-integration, REVIEW2.md required action 4): surface
+    # retrieval_status() in the search payload so an embedding-subsystem
+    # degradation is visible to whatever's calling this endpoint, not only
+    # to ./arailctl doctor. Response HEADERS rather than a wrapped JSON
+    # body, deliberately: dashboard.html/agents.html/docs_hub.html all do
+    # `fetch(...).then(r => r.json()).then(hits => hits.forEach(...))` —
+    # changing the top-level shape to an envelope would break all three
+    # without a matching frontend change, which is out of scope for this
+    # fix. The `/knowledge` banner and Buddy's context-header line (the
+    # other two C1 surfaces) are NOT wired in this pass — see
+    # sprints/2026-08-08-arail2-tier1-integration/SPRINT.md's explicit
+    # deferral and the matching sprints/BACKLOG.md entry.
+    from arail.pkb import retrieval_status
+    ok, reason = retrieval_status()
+    if ok:
+        return results
+    return JSONResponse(
+        content=results,
+        headers={
+            "X-Retrieval-Status": "degraded",
+            "X-Retrieval-Reason": _header_safe(reason)[:200],
+        },
+    )
+
+
+def _header_safe(value: str) -> str:
+    """Make an arbitrary string safe as an HTTP response header value
+    (QA-4/QA-5/QA-7, TEST_REPORT.md, 2026-08-08-arail2-tier1-integration).
+
+    Two independent hazards share this one call site because ``reason``
+    in ``api_pkb_search`` is never fully trusted: most of it comes from
+    ``pkb_index``'s own degraded-state prose, which is ASCII except for an
+    em dash (U+2014) every message contains — Starlette encodes response
+    headers as latin-1, so that alone 500s the endpoint on four of five
+    real Worlds plus the root lab, and on any clean machine that hasn't
+    pulled the embedding model yet (QA-5). But `EmbeddingError` messages
+    also splice in up to 400 bytes of a provider's raw HTTP error body
+    (``embed._post``), and in ``LAB_MODE=hybrid`` that provider can be
+    off-box — so the same string is also untrusted input on a
+    response-header-injection surface (QA-4: CR/LF/NUL reaching a header).
+
+    QA-7: an earlier version of this function denylisted CR/LF/NUL and
+    ASCII-folded everything above 0x7f. Every *other* C0 control character
+    (VT, FF, ESC, BEL, ...) passed through unchanged — not inert: `h11`
+    rejects VT/FF outright, and uvicorn's httptools transport rejects 29
+    of the 31, both the identical 500 QA-5 was, reached by a different
+    byte from the same provider-controlled call site. A denylist only
+    ever closes the members it names; an **allowlist** (printable ASCII,
+    plus tab and the space a folded line break leaves behind) closes the
+    whole class in one step.
+
+    Order: replace line breaks with a space first (a multi-line message —
+    the `provider` degrade text is the one real reason that's multi-line —
+    must still read as separated words, not run together at the join);
+    fold the em dash to `--` next (so the common case reads as prose,
+    e.g. "spec declares -- run `...`", rather than losing the punctuation
+    to the allowlist filter); then allowlist-filter everything that
+    remains, which is what actually guarantees no control character or
+    non-latin-1 byte can ever reach Starlette's latin-1 header encoder.
+    """
+    value = value.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+    value = value.replace("—", "--")
+    return "".join(ch for ch in value if ch == "\t" or " " <= ch <= "~")
 
 
 @app.post("/api/pkb/ingest")

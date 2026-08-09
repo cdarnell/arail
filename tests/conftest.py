@@ -236,3 +236,50 @@ def _reset_egress_guard():
         arail.egress._reset_for_tests()
     except Exception:  # noqa: BLE001
         pass  # If egress hasn't been imported yet, nothing to reset.
+
+
+@pytest.fixture(autouse=True)
+def _stub_embedding_provider(request, monkeypatch):
+    """Stub ``arail.dbspec.embed.embed_documents``/``embed_query`` with a
+    fast, deterministic, network-free fake — UNLESS the test is marked
+    ``@pytest.mark.requires_ollama``, in which case real Ollama is used.
+
+    This exists because Tier 1.2 (arail2-tier1-integration sprint) wires
+    ``pkb.index_all``/``_semantic_search`` to call the real embedding
+    provider. Without this fixture, every pre-existing test that exercises
+    those code paths without its own mock would suddenly need a reachable
+    Ollama with ``nomic-embed-text`` pulled — turning unit tests into
+    integration tests and reproducing FM18 (a CI runner with no Ollama
+    goes red) far outside the eval harness this fixture mode was designed
+    for. The stub reuses ``vector_index.hash_embedding`` at the spec's
+    declared dimension so callers see vectors of the right shape without
+    a network call; it says nothing about retrieval *quality* — that
+    question is answered once, honestly, by
+    ``scripts/eval/retrieval_ab.py`` (see
+    ``sprints/2026-08-08-arail2-tier1-integration/RESULTS.md``), not by
+    every unit test re-deciding it.
+    """
+    if "requires_ollama" in request.node.keywords:
+        yield
+        return
+    try:
+        from arail.dbspec import embed as embed_mod
+        from arail.dbspec.generated.models_registry import EMBEDDING_DIM
+        from arail.vector_index import hash_embedding
+    except Exception:  # noqa: BLE001
+        yield
+        return
+
+    def _fake_embed_documents(texts):
+        return [hash_embedding(t, dim=EMBEDDING_DIM) for t in texts]
+
+    def _fake_embed_query(text):
+        return hash_embedding(text, dim=EMBEDDING_DIM)
+
+    def _fake_embed(text):
+        return hash_embedding(text, dim=EMBEDDING_DIM)
+
+    monkeypatch.setattr(embed_mod, "embed_documents", _fake_embed_documents)
+    monkeypatch.setattr(embed_mod, "embed_query", _fake_embed_query)
+    monkeypatch.setattr(embed_mod, "embed", _fake_embed)
+    yield

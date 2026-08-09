@@ -617,3 +617,369 @@ item drops in priority to "fix the PDF-ingest defect" without the
 World-forge framing. Revisit alongside that experiment's result — see
 `sprints/2026-08-06-deep-research-world-forge/VISION.md` for the full
 decision tree and thresholds.
+
+---
+
+## `pkb._iter_pkb_files` indexes dot-directory contents as ordinary PKB rows
+
+**Filed by:** `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md`
+(W1), confirmed and required for filing by REVIEW.md's tech-debt section.
+
+**The gap.** `pkb._iter_pkb_files` (`pkb.py:391-411`) skips a file only if
+`p.name.startswith(".")` — it does not skip files whose *ancestor
+directory* starts with a dot. `.wiki-cache/manifest.json`, the
+machine-generated wiki index (1.15 MB in the `ai` world, ~230 KB in
+`debt-finance`, present in every world), is therefore indexed as an
+ordinary PKB row alongside real user/agent content. Confirmed live: of the
+889-row corpus measured in this sprint, 19 rows come from
+`.wiki-cache/manifest.json` files (5 worlds, 1 each — actually one per
+world where the wiki has been built).
+
+**Why it wasn't fixed here.** `pkb.py` is on this sprint's explicit
+"must NOT touch" list (ARCHITECTURE.md §"What the builder must NOT touch"
+#6) — it stays byte-identical to baseline `8cb5760` unless and until the
+embedding-provider gate passed, and even then the architecture scopes the
+allowed `pkb.py` edits to the C1 error contract, C2's lazy-index removal,
+and the C4/W9 embed-call-site swap specifically, not general bug fixes
+picked up along the way. This is a genuine, independent production defect
+that predates this sprint and is orthogonal to embeddings.
+
+**Impact today:** neutral to search *quality* under `hash_embedding`
+(both arms in this sprint's A/B saw the same distractor rows, so it did
+not bias the measurement — confirmed in REVIEW.md's tech-debt section).
+It does waste embedding calls once nomic is live (a 1 MB JSON blob costs
+one more embed call per world, capped at 4096 chars like everything else,
+so the cost is bounded but non-zero and pointless) and it pollutes
+`source_kind="user"` search results with an internal cache artifact that
+was never meant to be searchable.
+
+**What a future sprint needs to do:** exclude any path with a
+dot-prefixed *directory component* (not just a dot-prefixed filename) in
+`_iter_pkb_files`, or explicitly denylist `.wiki-cache/` and
+`.cache/` by name (both already exist as sibling exclusions for other
+reasons — `.cache/` holds the LanceDB table itself). Needs a regression
+test asserting `.wiki-cache/manifest.json` is absent from `index_all()`'s
+row count before and after the fix, since silently changing row counts
+without a test would make the next embedder-migration measurement
+non-reproducible against this sprint's baseline.
+
+---
+
+## Docs-registry corpus slice is unmeasured by the Tier 1.2 A/B, but is re-embedded by the swap
+
+**Filed by:** `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md`
+(W1 design decision), required for filing by REVIEW.md's spec-adherence
+section (acknowledged drift #2) and required action 1.
+
+**The gap.** `pkb.index_all()` appends `pkb._build_docs_rows()` — a
+*global*, non-world-scoped set of rows drawn from `docs_registry.all_docs()`
+— to every world's PKB rows before writing the vector table
+(`pkb.py:529-530`). The Tier 1.2 A/B harness
+(`scripts/eval/retrieval_ab.py`) deliberately excludes this slice: since
+`_build_docs_rows()` takes no `root` parameter, the same docs rows would
+appear identically in all five worlds' harness corpora, making "recall@5
+per world" incoherent (a docs page would simultaneously count as "in"
+`ai`, `qukaizen`, `debt-finance`, etc.). REVIEW.md agreed with this call.
+
+**Consequence, carried forward explicitly (not silently):** the published
+recall@5 numbers (hash 50.0% / nomic 90.6%, Δ +40.6pp) say nothing about
+retrieval quality over the docs-registry slice specifically. When W9 swaps
+the embedding provider at the `index_all`/`_build_docs_rows` call sites,
+it will re-embed this slice too, on the strength of the *general* result
+(nomic beats hash on prose-and-glossary content of the same rough shape:
+markdown pages with titles, short bodies, procedural or definitional
+prose) rather than a slice-specific measurement. Risk is assessed as low
+— same embedder, same embed-input construction, same document shape — but
+it is an unmeasured extrapolation and should be named as such wherever
+W9's rationale is written up, not treated as directly covered by the A/B.
+
+**What a future sprint could do, if this matters in practice:** extend
+`scripts/eval/retrieval_ab.py` with a `--include-docs` mode that scores
+the docs-registry rows as their own pseudo-world (or folds them into
+`root`, since `docs_registry` content is root-scoped conceptually) so the
+docs slice gets its own recall@5 number rather than inheriting the
+PKB-only result by assumption.
+
+---
+
+## `pkb_provenance.py`'s JSON sidecar is a second-best `content_refs`
+
+**Filed by:** ARCHITECTURE.md §"Tech debt assessment" (conditional),
+required to be filed "at build time" — this is that filing, from
+`sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` W7/W9.
+
+**The gap.** The rejected 2.0 consolidated store's `content_refs` table
+records `embedding_model`/`embedding_dim` per row, transactionally, as
+part of the same write. The 1.x per-instance `pkb_pages` tables have no
+such column, so `pkb_provenance.py` (new this sprint) is a JSON file
+sitting next to the LanceDB table instead: written last, read on load,
+compared against the current spec. It does the job (C4: no query served
+from a table whose provenance disagrees with the spec), but it is a
+second-best solution to a problem the 2.0 store already solves properly,
+and it is one more piece of on-disk state that can theoretically drift
+from the table it describes (e.g. a `pkb_pages.lance` directory copied
+without its sidecar).
+
+**What a future sprint should do:** retire `pkb_provenance.py` if/when
+the consolidated 2.0 store cutover is revisited (see
+`sprints/2026-08-08-arail2-declarative-persistence/INTEGRATION.md` and
+VISION.md's rejection rationale for that cutover) — `content_refs`
+subsumes it. Until then, `pkb_provenance.py`'s three functions
+(`write`/`read`/`agrees_with_spec`) are the whole surface; a future
+migration only needs to reimplement `agrees_with_spec`'s semantics
+against `content_refs` rows.
+
+---
+
+## Two vector spaces in one lab: `pkb_pages` (nomic) vs `wiki_nodes` / `agent_workflows` / `experiments` (hash)
+
+**Filed by:** ARCHITECTURE.md §"Tech debt assessment" (conditional,
+"Also filed") and REVIEW.md's amendment 1 — required to be filed at
+build time. This is that filing, from
+`sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` W9.
+
+**The gap.** After the Tier 1.2 embedder swap, `pkb_pages` is embedded
+with nomic-embed-text (768-dim, real semantic vectors). `wiki_nodes.py`'s
+own hash table, `agent_workflows`, and `experiments` all still use
+`vector_index.hash_embedding` (128-dim, a SHA1 token-hash projection).
+This is safe today — the tables are physically separate LanceDB tables/
+directories, so nothing cross-contaminates — but it means "semantic
+search" now means two different, incompatible things depending on which
+surface of the lab you're searching, and only one of them (`pkb_pages`)
+carries a provenance sidecar (C4) recording what it actually is.
+
+**Corrected framing (REVIEW.md amendment 1, measured, not assumed):**
+`hash_embedding` is not kept around because it is competitive on any
+retrieval axis this sprint measured (see
+`sprints/2026-08-08-arail2-tier1-integration/RESULTS.md`'s exact-token
+collision diagnostic — hash lost even the class it was assumed to win).
+It is kept **only** because `wiki_nodes`/`agent_workflows`/`experiments`
+still call it directly and swapping those three call sites was
+explicitly out of scope for this sprint (A5 in ARCHITECTURE.md).
+
+**What a future sprint should do:** if `wiki_nodes`/`agent_workflows`/
+`experiments` search quality becomes a live complaint, measure them the
+same way this sprint measured `pkb_pages` — a fixture, an A/B, a
+15-point-or-larger bar — rather than assuming the `pkb_pages` result
+transfers. Their content shape (wiki term pages, workflow logs,
+experiment records) differs enough from PKB prose that the `pkb_pages`
+number is not strong evidence either way. Extend each with its own
+`pkb_provenance`-style sidecar (or the shared module, generalized past
+"pkb_pages" as a hardcoded table name) if/when they are swapped, so "two
+vector spaces in one lab" stays a recorded, provenance-checkable fact
+instead of reverting to being an undocumented discovery.
+
+---
+
+## `pkb_index`'s degraded state is a module global; PKB roots are per-World
+
+**Filed by:** REVIEW2.md's tech-debt section (required to be filed before
+PASS), `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build3.
+
+**The gap.** `pkb_index._degraded_codes` (and, before build3's reason-
+scoping fix, the single `_degraded`/`_degraded_reason` pair) is one dict
+shared by the whole process, but `ensure_ready` caches `_pkb_root_cache`
+and early-returns on `_initialized` — meaning in a process that touches
+more than one PKB root, one World's degraded status can describe another
+World's table. Concurrent-Worlds usage (`./arailctl start --world <slug>`)
+runs each World as its own OS process today (per
+`docs/concurrent-worlds.md`), which is what makes this survivable right
+now — one process, one root, one meaningful global. Per the operator's
+own recorded usage pattern (serial, not concurrent Worlds — see
+`learnings/` cross-product memory), this has not bitten anyone yet.
+
+**What a future sprint needs to do, if concurrent in-process multi-root
+access is ever introduced:** key `_degraded_codes` (and `_pending`,
+`_timer`, `_pkb_root_cache`) by `pkb_root` instead of being process-global
+singletons. This is a real refactor (the debounce timer machinery assumes
+one root too), not a one-line fix — scope it as its own sprint if/when the
+concurrent-Worlds architecture starts sharing a process.
+
+---
+
+## `tests/conftest.py`'s suite-wide embedding stub hides a hash-vector regression
+
+**Filed by:** REVIEW2.md's tech-debt section (required to be filed before
+PASS), `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build3.
+
+**The gap.** The autouse `_stub_embedding_provider` fixture (added W6,
+`tests/conftest.py`) replaces `arail.dbspec.embed.embed_documents`/
+`embed_query`/`embed` with a deterministic `hash_embedding`-based fake for
+every test not marked `@pytest.mark.requires_ollama`. This is the right
+call for FM18 (a CI runner with no Ollama must not turn every pkb test
+into an integration test) — but it means a hypothetical future regression
+where production code silently falls back to `hash_embedding` instead of
+calling the real `embed_documents` symbol would be **invisible** to the
+entire test suite: the stub's own output looks identical in shape to what
+a real accidental hash-vector fallback would produce.
+
+**Mitigation already shipped, build3:** one non-stubbed guard test
+(`tests/test_w9_embedder_swap.py::test_index_all_calls_the_real_embed_documents_symbol`)
+asserts `index_all` calls the actual `arail.dbspec.embed.embed_documents`
+function object (via `unittest.mock.patch`'s call-target identity, not the
+stub), so a regression that swapped the call site back to
+`hash_embedding` would fail this one test even though every other
+pkb-related test in the suite would stay green.
+
+**What a future sprint could do, if this matters more:** extend the guard
+pattern to `_build_row`/`pkb_reembed.run` (the other two production call
+sites), or add a suite-wide post-run assertion that greps the coverage
+report for the `hash_embedding` symbol's call sites and fails if any of
+the three production embed call sites show up.
+
+---
+
+## `pkb reembed`'s `.bak-<ts>` backups accumulate with no pruning
+
+**Filed by:** REVIEW2.md's tech-debt section (required to be filed before
+PASS), `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build3.
+
+**The gap.** Every successful `./arailctl pkb reembed` that replaces an
+existing live table renames the old `pkb_pages.lance` to
+`pkb_pages.lance.bak-<unix-ts>` rather than deleting it — the documented
+rollback path (`docs/cli.md`'s `reembed` section: "move the `.bak-<ts>`
+dir back over `pkb_pages.lance`"). Nothing prunes these. A World that gets
+re-embedded repeatedly (e.g. after several spec/model changes, or after
+an operator scripts periodic reembeds) accumulates one full-size backup
+directory per run, unbounded, with no CLI surface to list or clean them
+and no mention of the accumulation in `docs/cli.md` beyond the rollback
+instructions.
+
+**What a future sprint should do:** either (a) a `--keep-backups N` flag
+defaulting to something like 1–2, pruning older `.bak-<ts>` dirs after a
+successful swap, or (b) fold pruning into `./arailctl db optimize`
+(ARCHITECTURE.md's rollback plan already floats this: "`db optimize` may
+claim them later"), whichever surface makes more sense once the
+consolidated-store question is revisited. Until then, an operator running
+`pkb reembed` repeatedly should expect disk usage proportional to run
+count × corpus size, and should manually `rm -rf` old `.bak-<ts>` dirs
+once they've confirmed a reembed succeeded.
+
+---
+
+## C1's `/knowledge` banner and Buddy context-header wiring — deferred
+
+**Filed by:** REVIEW2.md required action 4 (explicit-deferral option),
+`sprints/2026-08-08-arail2-tier1-integration/SPRINT.md` build3 decisions
+log, `sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build3.
+
+**The gap.** C1 in ARCHITECTURE.md named three surfaces for
+`retrieval_status()`: the search API payload, the `/knowledge` banner, and
+Buddy's context-header line ("an agent must not be handed keyword-only
+results while the UI claims semantic retrieval"). Build3 wired the first
+(`/api/pkb/search` now sets `X-Retrieval-Status`/`X-Retrieval-Reason`
+response headers when degraded — see
+`tests/test_pkb_search_api_status.py`). The other two were not: `/knowledge`
+is itself a 307 redirect to `/dac` today (the surface moved since C1 was
+written), and Buddy's system-prompt/context-builder wiring is a separate
+code path (`search_for_agents` → whatever assembles Buddy's LLM context)
+that needs its own read-and-scope pass rather than a same-commit addition
+alongside two BLOCK fixes.
+
+**What a future sprint needs to do:** (a) find the current DaC/`/dac`
+knowledge surface's template and add a degraded banner there, reading
+`pkb.retrieval_status()` the same way the search endpoint now does; (b)
+find where Buddy's (and any other agent's) system prompt is assembled
+from `search_for_agents()` results and prepend a one-line honesty note
+("semantic search is degraded: <reason>; results below are keyword-only")
+when `retrieval_status()` reports not-ok. Both are small once located —
+the backend primitive (`pkb.retrieval_status()`) already exists and is
+tested; this is purely "find the two remaining call sites and read one
+tuple."
+
+**Hard constraint added by QA (TEST_REPORT.md QA-6, 2026-08-08):** (b)
+must NOT be built as a naive read of `retrieval_status()` on its own. The
+Compiled-KB gate ships on by default with nothing approved on all six of
+the operator's real PKB roots (pre-existing, Phase 1 audit A36,
+`compiled_kb.py:109` failing closed) — so `search_for_agents` /
+`pkb.search(approved_only=True)` returns `[]` **before**
+`_semantic_search` ever runs, and no degraded code is ever set.
+`retrieval_status()` therefore reports `(True, "")` — healthy — on
+exactly the same legacy World where Buddy gets zero hits. A context
+header built exactly as C1 specifies, wired straight to
+`retrieval_status()`, would print a **false "retrieval healthy"** right
+next to zero results. Whoever builds (b) must first make the agent path
+itself consult the gate/approved-count state (not just the embedding
+degraded-codes) before trusting `retrieval_status()` for this surface —
+see `tests/test_qa_tier1_buddy_retrieval.py::test_agent_retrieval_returns_nothing_and_reports_healthy_on_a_legacy_world`,
+which pins the hazard.
+
+---
+
+## `VectorIndex._table()` is re-opened three times per PKB query
+
+**Filed by:** REVIEW3.md's performance assessment, per the coordinator's
+explicit "do not optimize now" instruction —
+`sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build4.
+
+**The gap.** `pkb._semantic_search` now calls `idx.count()`, then
+`idx._table()` directly for the read-path health check, then
+`idx.search_vector()` opens the table a third time internally
+(`VectorIndex._table()` is not memoised — it re-resolves the table handle
+on every call, by design, since `VectorIndex` instances are typically
+short-lived per-call wrappers). The health check itself is not the cost
+(measured at 0.105 ms, one small provenance-sidecar JSON read).
+
+**Correction (QA, TEST_REPORT.md, 2026-08-08):** REVIEW3's original
+measurement of `_table()` at 7.5 ms of a 20.8 ms `pkb.search()` call was
+overstated — QA measured the real call directly and got **0.39–1.21 ms**
+per `_table()` open on realistic corpora, roughly an order of magnitude
+lower. The triple-open shape described below is still real and still
+worth fixing eventually, but it is not the hot-path emergency the
+original number implied; treat this entry as lower urgency than its
+original framing.
+
+**Why it wasn't fixed now.** The coordinator ruled explicitly: measure
+and file, don't optimize this sprint — the fix (passing the
+already-opened `table` object into `search_vector`, or memoising
+`VectorIndex._table()`) is a real change to a hot path that deserves its
+own focused pass with its own before/after measurement, not a
+reflexive addition to an already-large integration sprint's diff.
+
+**What a future sprint should do:** either (a) give `_semantic_search`
+a variant that opens the table once and threads it through
+`check_read_path_health` and `search_vector` explicitly, or (b) add a
+small opt-in cache to `VectorIndex` (e.g. `_table_cache: Any | None`,
+invalidated by a generation counter or simply never reused across
+`VectorIndex` instances, since each call site already constructs a fresh
+one). `open_table` cost is expected to grow with LanceDB fragment count,
+so this gets worse, not better, as a World's PKB grows — worth doing
+before a World's corpus gets large enough for it to matter in practice.
+
+---
+
+## `pkb_reembed`'s shadow-build verification is cardinality-only, not content-aware
+
+**Filed by:** REVIEW3.md's "also fix" #3 (coverage half implemented; the
+underlying check itself was explicitly not upgraded) —
+`sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build4.
+
+**The gap.** Both shadow-completeness checks BLOCK-2 added
+(`pkb_reembed.py`'s pre-swap check and its `--resume` checkpoint check)
+compare ROW COUNTS — `shadow_row_count == total` and `shadow_row_count ==
+len(completed_paths)` — never the actual path *identity* or row
+*content*. `tests/test_pkb_reembed.py::
+test_shadow_verification_is_cardinality_only_documented_limitation` pins
+the concrete, reproduced blind spot: a `--resume` checkpoint that
+correctly names some real corpus paths as already-completed, backed by a
+shadow table that genuinely has rows at those same paths but with a
+**stale vector** (as if embedded from old file content and never
+re-verified), is trusted verbatim into the swapped-in live table. The
+counts are satisfied, so nothing discards it. (A related but already-
+closed scenario: a checkpoint naming entirely WRONG paths as completed is
+actually still caught today — `remaining` is computed by path-set
+membership against the real corpus, not by subtracting a count, so wrong
+paths cause every real row to be re-embedded and the final
+`shadow_row_count != total` check trips correctly. The surviving gap is
+narrower: matching paths, unverified content.)
+
+**What a future sprint should do:** add a
+`set(shadow_table.to_pandas()["path"]) == set(completed_paths)` check
+alongside the existing count checks (cheap — one more `to_pandas()`
+column read), and/or re-embed and diff a sample of "already completed"
+rows on `--resume` rather than trusting them unconditionally. The
+narrowest fully-correct fix would key resumption on a hash of each row's
+`embed_input` rather than path alone, so a file whose *content* changed
+between the interrupted run and the resume is also caught — currently
+neither the count check nor a hypothetical path-set check would catch
+that case either.
