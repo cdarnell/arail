@@ -44,6 +44,14 @@ SCHEMA = "arail.compiled-kb/v1"
 _KB_SUBDIR = ("compiled", "kb")
 _APPROVED_FILE = "approved.json"
 _REJECTED_FILE = "rejected.json"
+# Sticky revocation set: a term the operator explicitly revoked must not be
+# silently re-approved by the next World mount. revoke() adds here; an
+# explicit approve() (operator action) removes. See auto_approve_world_terms.
+_UNAPPROVED_FILE = "unapproved.json"
+# Per-root opt-out: presence (or unreadability) disables the mount-time
+# world-term auto-approval hook for this root. Deliberately a file, not a
+# spec field — it lives with the data and survives a re-mount.
+_NO_AUTO_APPROVE_SENTINEL = "no-auto-approve"
 
 # Candidate kinds surfaced in the review queue, mapped from source_kind /
 # path. World per-term pages are the headline case; agent outputs are the
@@ -104,6 +112,31 @@ def _rejected_set(pkb_root: Path) -> set[str]:
     if isinstance(raw, dict):
         raw = raw.get("items", [])
     return {p for p in raw if isinstance(p, str)} if isinstance(raw, list) else set()
+
+
+def _unapproved_set(pkb_root: Path) -> set[str]:
+    raw = _load_json(_kb_dir(pkb_root) / _UNAPPROVED_FILE, [])
+    if isinstance(raw, dict):
+        raw = raw.get("items", [])
+    return {p for p in raw if isinstance(p, str)} if isinstance(raw, list) else set()
+
+
+def _save_unapproved(pkb_root: Path, items: set[str]) -> None:
+    _save_json(_kb_dir(pkb_root) / _UNAPPROVED_FILE,
+               {"schema": SCHEMA, "items": sorted(items)})
+
+
+def unapproved_paths(pkb_root: Path | None = None) -> set[str]:
+    """Paths a human explicitly revoked — consulted by
+    ``auto_approve_world_terms`` so a revoked term is not silently
+    re-approved by the next mount. Fails open to the empty set (worst case:
+    a revoked term becomes eligible for auto-approval again, never data
+    loss)."""
+    root = pkb_root or _pkb_root()
+    try:
+        return _unapproved_set(root)
+    except Exception:  # noqa: BLE001
+        return set()
 
 
 def approved_paths(pkb_root: Path | None = None) -> set[str]:
@@ -378,14 +411,23 @@ def _clean_rel(rel: str) -> str:
 
 
 def approve(paths: Iterable[str], pkb_root: Path | None = None, *,
-            approver: str = "operator") -> list[dict[str, Any]]:
+            approver: str = "operator",
+            extra: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Promote raw items into the Compiled KB. Requires each path to exist and
     to be a legitimate candidate; records provenance + a content hash of the
     exact approved bytes. Idempotent per path. Returns the new/updated records.
+
+    ``extra`` is merged into each record (additive only — e.g.
+    ``{"auto": True}`` for a seal-derived auto-approval, distinguishable and
+    separately revocable from an operator's own click). An explicit approve()
+    call — operator action or auto-approval alike — clears the path from the
+    sticky ``unapproved.json`` revocation set: the whole point of that set is
+    to survive a *mount*, not to survive an intentional re-approval.
     """
     root = pkb_root or _pkb_root()
     current = _approved_map(root)
     rejected = _rejected_set(root)
+    unapproved = _unapproved_set(root)
     added: list[dict[str, Any]] = []
     for raw_rel in paths:
         try:
@@ -410,13 +452,18 @@ def approve(paths: Iterable[str], pkb_root: Path | None = None, *,
             "approved_by": approver,
             "schema": SCHEMA,
         }
+        if extra:
+            rec.update(extra)
         current[rel] = rec
         rejected.discard(rel)
+        unapproved.discard(rel)
         added.append(rec)
     _save_json(_kb_dir(root) / _APPROVED_FILE,
                {"schema": SCHEMA, "updated_at": _now(), "items": current})
     _save_json(_kb_dir(root) / _REJECTED_FILE,
                {"schema": SCHEMA, "items": sorted(rejected)})
+    if added:
+        _save_unapproved(root, unapproved)
     return added
 
 
@@ -496,18 +543,209 @@ def reject(paths: Iterable[str], pkb_root: Path | None = None) -> int:
 
 def revoke(paths: Iterable[str], pkb_root: Path | None = None) -> int:
     """Remove items from the Compiled KB (un-approve). The raw file remains;
-    agents simply stop building on it. Fully reversible."""
+    agents simply stop building on it. Fully reversible.
+
+    Also records each path in the sticky ``unapproved.json`` set so a later
+    World mount does not silently re-approve it via
+    ``auto_approve_world_terms`` — without this, revoking a World term would
+    be undone by the next mount."""
     root = pkb_root or _pkb_root()
     current = _approved_map(root)
+    unapproved = _unapproved_set(root)
     n = 0
     for raw_rel in paths:
         rel = str(raw_rel).replace("\\", "/").strip().lstrip("/")
         if rel in current:
             del current[rel]
             n += 1
+        unapproved.add(rel)
     _save_json(_kb_dir(root) / _APPROVED_FILE,
                {"schema": SCHEMA, "updated_at": _now(), "items": current})
+    if n:
+        _save_unapproved(root, unapproved)
     return n
+
+
+def revoke_auto(pkb_root: Path | None = None) -> int:
+    """Revoke every approval carrying ``auto: True`` — the one-step rollback
+    for the whole mount-time auto-approval mechanism. Raw files untouched;
+    fully reversible."""
+    root = pkb_root or _pkb_root()
+    current = _approved_map(root)
+    auto_paths = [rel for rel, rec in current.items() if rec.get("auto") is True]
+    return revoke(auto_paths, root)
+
+
+# ── World-term auto-approval (mount-time, narrowly scoped) ───────────────
+
+_WORLD_TERM_SLUG_SAFE_RE = re.compile(r"[^a-z0-9-]+")
+
+
+def _safe_term_slug(raw: Any) -> str:
+    """Mirror world_mount._safe_term_slug / world_corpus._safe_term_slug
+    exactly — the staged term page filenames (and therefore approved_paths
+    entries) were written with this sanitizer; reconstructing the path any
+    other way risks silently missing or mis-scoping approved terms."""
+    return _WORLD_TERM_SLUG_SAFE_RE.sub("-", str(raw).lower()).strip("-")[:80]
+
+
+def _auto_approve_disabled(pkb_root: Path) -> bool:
+    """True if either escape hatch is active. Both fail toward LESS
+    auto-approval: env var off, or the sentinel file present/unreadable."""
+    if os.getenv("ARAIL_AUTO_APPROVE_WORLD_TERMS", "on").strip().lower() in (
+            "off", "0", "false", "no"):
+        return True
+    sentinel = _kb_dir(pkb_root) / _NO_AUTO_APPROVE_SENTINEL
+    try:
+        return sentinel.exists()
+    except OSError:
+        # Unreadable is treated as present (disabled) — fail toward less
+        # agent-visible truth, never more.
+        return True
+
+
+def auto_approve_world_terms(
+    world_slug: str, *,
+    bundle_terms: Iterable[dict[str, Any]],
+    seal_sha: str,
+    pkb_root: Path | None = None,
+) -> list[dict[str, Any]]:
+    """Auto-approve exactly the staged term pages for ``world_slug`` whose
+    slug is present in ``bundle_terms`` — the reconciliation half of the
+    scope invariant. ``bundle_terms`` MUST come from a bundle whose seal has
+    already verified; this function does not verify seals and must never be
+    called with unverified terms.
+
+    Scope: a path is admitted iff (1) it matches
+    ``sources/world-<slug>/terms/<term-slug>.md``, (2) ``<term-slug>`` is in
+    the verified ``bundle_terms``, (3) ``_is_candidate`` passes, and (4) the
+    file exists and is readable. Everything else — notes/, inbox/,
+    conversations/, agents/**, sources/scout/, sources/seeds/, research/,
+    skills/, hand-dropped .md inside terms/ not in terms.json — is
+    unreachable by construction.
+
+    Never raises. Returns ``[]`` (writes nothing) on: unknown slug, empty
+    bundle_terms, missing staged dir, opt-out sentinel present/unreadable,
+    or ``ARAIL_AUTO_APPROVE_WORLD_TERMS=off``.
+    """
+    try:
+        root = pkb_root or _pkb_root()
+        if not world_slug or not re.match(r"^[a-z0-9][a-z0-9-]*$", world_slug):
+            return []
+        if _auto_approve_disabled(root):
+            return []
+        terms_dir = root / "sources" / f"world-{world_slug}" / "terms"
+        if not terms_dir.is_dir():
+            return []
+
+        bundle_slugs: set[str] = set()
+        for t in bundle_terms:
+            if not isinstance(t, dict):
+                continue
+            s = _safe_term_slug(t.get("slug", ""))
+            if s:
+                bundle_slugs.add(s)
+        if not bundle_slugs:
+            return []
+
+        rejected = _rejected_set(root)
+        unapproved = _unapproved_set(root)
+        candidates: list[str] = []
+        for slug in sorted(bundle_slugs):
+            rel = f"sources/world-{world_slug}/terms/{slug}.md"
+            if rel in rejected or rel in unapproved:
+                continue
+            if not _is_candidate(rel):
+                continue
+            full = root / rel
+            try:
+                if not full.is_file():
+                    continue
+            except OSError:
+                continue
+            candidates.append(rel)
+        if not candidates:
+            return []
+
+        approver = f"world-seal:{str(seal_sha)[:12]}"
+        return approve(candidates, root, approver=approver, extra={"auto": True})
+    except Exception:  # noqa: BLE001 — best-effort; must never fail a mount
+        return []
+
+
+def bootstrap(pkb_root: Path | None = None, *, dry_run: bool = False) -> dict[str, Any]:
+    """Backfill/refresh the Compiled KB manifest for one root: resolve the
+    staged World (if any) from the catalog copy and auto-approve its term
+    pages. Always writes the manifest when not ``dry_run`` — even when zero
+    terms qualify — so ``manifest_present()`` flips and ``gate_state`` moves
+    from "unbootstrapped" to "empty". This is what makes a fresh lab honest.
+
+    Never raises; a per-root failure is reported in ``skipped_reason``."""
+    root = pkb_root or _pkb_root()
+    result: dict[str, Any] = {
+        "root": str(root), "world": None, "approved": 0,
+        "skipped_reason": None, "dry_run": dry_run,
+    }
+    try:
+        if not root.is_dir():
+            result["skipped_reason"] = f"pkb root not found: {root}"
+            return result
+
+        # Discover the staged World, if any, from sources/world-<slug>/.
+        world_slug: str | None = None
+        sources_dir = root / "sources"
+        if sources_dir.is_dir():
+            for child in sorted(sources_dir.iterdir()):
+                if child.is_dir() and child.name.startswith("world-"):
+                    world_slug = child.name[len("world-"):]
+                    break
+        result["world"] = world_slug
+
+        candidate_paths: list[str] = []
+        if world_slug:
+            try:
+                from arail.build.world_corpus import resolve_world_bundle
+                bundle = resolve_world_bundle(world_slug)
+                terms = bundle.get("terms", [])
+            except FileNotFoundError:
+                result["skipped_reason"] = (
+                    f"no bundle in catalog for {world_slug}; mount it once")
+                terms = []
+            except Exception as e:  # noqa: BLE001
+                result["skipped_reason"] = f"failed to resolve catalog bundle: {e}"
+                terms = []
+
+            if terms:
+                if dry_run:
+                    for t in terms:
+                        if not isinstance(t, dict):
+                            continue
+                        slug = _safe_term_slug(t.get("slug", ""))
+                        if slug:
+                            candidate_paths.append(
+                                f"sources/world-{world_slug}/terms/{slug}.md")
+                    result["approved"] = len(candidate_paths)
+                    return result
+                try:
+                    from arail.config import WORLDS_DIR
+                    terms_raw = (Path(WORLDS_DIR) / world_slug / "terms.json").read_bytes()
+                    seal_sha = hashlib.sha256(terms_raw).hexdigest()
+                except Exception:  # noqa: BLE001
+                    seal_sha = _sha256(json.dumps(terms, sort_keys=True))
+                added = auto_approve_world_terms(
+                    world_slug, bundle_terms=terms, seal_sha=seal_sha,
+                    pkb_root=root)
+                result["approved"] = len(added)
+                return result
+
+        # No World staged, or nothing qualified: still write the manifest
+        # (possibly empty) so manifest_present() flips honestly.
+        if not dry_run:
+            approve([], root)
+        return result
+    except Exception as e:  # noqa: BLE001 — bootstrap must never itself raise
+        result["skipped_reason"] = f"bootstrap failed: {e}"
+        return result
 
 
 # ── The retrieval gate toggle ────────────────────────────────────────────
