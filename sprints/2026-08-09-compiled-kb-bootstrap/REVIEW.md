@@ -10,7 +10,14 @@ tests/test_pkb_retrieve_for_agents.py tests/test_world_mount.py
 tests/test_world_mount_auto_approve.py tests/test_compiled_kb_sweep_prune.py -q`
 → **80 passed**. The builder's claim reproduces.
 
-## Verdict: BLOCK
+## Verdict: PASS (round 2 — supersedes the round-1 BLOCK below)
+
+Round 1's verdict was BLOCK; see [Round 2](#round-2-re-review) at the bottom
+for the re-review that clears it. The round-1 body is preserved unedited.
+
+---
+
+## Verdict: BLOCK (round 1 — superseded)
 
 The security half of this sprint is good work and I found no way to widen the
 gate. The sprint is blocked on the *convenience* half — specifically, the
@@ -354,3 +361,184 @@ empty on five of six roots and will stay empty through every World switch.
 Re-review scope on return: the `swap` hook and its test, the multi-root
 bootstrap, the provenance stamp. The scope invariant does not need
 re-litigating unless `auto_approve_world_terms` itself changes.
+
+---
+
+# Round 2 re-review
+
+**Date:** 2026-08-09
+**Diff reviewed:** `02d972f..93c9767` (7 commits)
+**Tests run by reviewer:** the eight files named by the coordinator, via
+`PYTHONPATH=src python3 -m pytest ... -q` → **100 passed**. `bash -n arailctl`
+clean. The builder's claims reproduce.
+
+## Verdict: PASS
+
+All three BLOCKs are genuinely closed and ASK-1 is fixed properly rather than
+papered over. One finding I expected to raise — manifest corpses accumulating
+on the newly-hot swap path — turned out to be already handled by existing code,
+which I verified rather than assumed. Remaining items are ASK/INFO and are
+carried to QA and follow-up tickets.
+
+### BLOCK-1 (swap hook) — CLOSED
+
+`world_mount.py:1695-1706`: the hook is present in `swap()`, mirroring
+`mount()`'s step 3.5 — same `try/except` + `_log.warning`, same
+`seal.computed_sha256`, same `bundle.terms`. `swap()` performs
+`load_bundle` → `verify_seal` → `SealMismatch` refusal → `check_compat` →
+`check_categories` before `_stage_files`, so the terms passed to the hook are
+seal-verified on this path too. Never-fails-a-switch is proven by
+`test_swap_still_succeeds_if_auto_approve_raises`.
+
+**Cross-contamination: I attacked this and it holds, for a reason the builder
+did not claim credit for.** `test_swap_auto_approves_incoming_world_terms`
+asserts `approved_paths() == {art-history terms}` exactly after
+`mount(physics) → swap(art-history)`, which surprised me: `approved_paths()` is
+purely manifest-derived with no on-disk filtering, and nothing in the diff
+prunes the outgoing World. The mechanism is pre-existing:
+`swap()` → `_refresh_kb_surfaces(pkb)` (`world_mount.py:1711`) →
+`_prune_swept_approvals` → `prune_dangling`. The hook was placed **after**
+`_write_record` and **before** `_refresh_kb_surfaces`, so the sequence is
+approve-then-prune: the incoming World's approvals survive (their files exist)
+and the outgoing World's swept approvals are dropped. Reversing that order
+would have produced a useless prune and unbounded corpse growth on the hot
+path. The placement is correct but ordering-fragile, so I have written it into
+ARCHITECTURE.md's data flow rather than leaving it as an accident.
+
+**Reseal interaction with sticky revocation — correct.** `_stage_files`
+(`world_mount.py:1055`+) moves the old `world-<slug>/` aside and renames the
+fresh staging dir into place, then `rmtree`s the old — so a term deleted from
+`terms.json` by the librarian loses its page, its approval dangles, and
+`prune_dangling` reaps it in the same swap. A term *re-added* after a human
+revocation stays revoked (its path is still in `unapproved.json`). A term the
+human never touched is re-approved. All three are the intended semantics.
+
+### BLOCK-2 (`--all-instances` / `--world`) — CLOSED
+
+Implemented in `arailctl` over the existing `scripts/lib/instances.sh`
+registry (sourced at `arailctl:69`), not as a second Python enumerator. That is
+the right call under the repo's "don't add a sixth implementation" rule.
+
+Containment verified:
+
+- `--world <slug>` → `inst_valid_slug` (`INST_SLUG_RE='^[a-z0-9][a-z0-9-]*$'`)
+  → `inst_pkb_dir` → `$REPO_ROOT/lab/instances/<slug>/pkb`. No `.`, `/`, or
+  `..` can survive the regex, so the write target cannot escape
+  `lab/instances/`. `--world root` is an explicit, separate branch.
+- `--all-instances` iterates `inst_list_slugs` (basenames of
+  `registry.d/*.json`), which cannot contain `/`. A missing dir is `warn`ed and
+  skipped; a stale entry fails safe.
+- Every expansion is quoted (`"$_pkb_slug"`, `"$_pkb_dir"`,
+  `LAB_PKB="$_pkb_dir"`), so a hostile filename cannot word-split or inject.
+- `--world` + `--all-instances` together is a `die`, not a silent precedence.
+- Flag parsing strips `--world`/`--all-instances` before `set --`, so only
+  `--dry-run` reaches Python.
+- **Secrets are untouched.** The only per-instance variable set is `LAB_PKB`;
+  `bootstrap()` writes solely under `<root>/compiled/kb/`. Nothing reads,
+  copies, or links `data/secrets.env`. This satisfies CLAUDE.md's "per-instance
+  secrets are never shared or auto-copied."
+- Exit code aggregates (`_pkb_boot_rc=1` on any per-root failure) while
+  continuing the loop, per the architecture.
+
+### BLOCK-3 (honest provenance) — CLOSED
+
+The split holds under inspection, not just in tests. `verified_seal` is
+keyword-only (the `*` precedes it) and affects only the label, never what is
+approved. The three call sites:
+
+| Caller | seal source | Stamp |
+|---|---|---|
+| `mount()` | `seal.computed_sha256` after `verify_seal` + `SealMismatch` refusal | `world-seal:` |
+| `swap()` | same | `world-seal:` |
+| `bootstrap()` | `sha256(catalog terms.json)`, no `verify_seal` | `world-terms:` |
+
+`world-seal:` is therefore written only on paths that genuinely verified a
+seal. `test_bootstrap_stamps_world_terms_not_world_seal` asserts both the
+positive and the negative. `docs/cli.md` now describes both stamps and no
+longer claims bootstrap checks a seal.
+
+### ASK-1 (one-way rollback) — CLOSED, correctly scoped
+
+`revoke(paths, *, sticky=True)`; `revoke_auto` passes `sticky=False`. Verified
+that ordinary revocation is unweakened: the human path
+(`portal/app.py:11353` → `ckb.revoke(paths)`) takes the default and stays
+sticky, and `test_explicit_revoke_stays_sticky_after_revoke_auto` proves a
+human revocation survives a subsequent `revoke_auto` + re-approval cycle.
+`./arailctl pkb revoke --auto` is now wired, with a clean exit-2 error when
+`--auto` is omitted.
+
+**`prune_dangling` still does not write to `unapproved.json`** — re-checked, as
+instructed, because swap is now hooked and this is the live risk. `prune_dangling`
+(`compiled_kb.py:497`) deletes from `current` and writes `approved.json` only;
+it never opens `unapproved.json`. A World switch therefore reconciles the
+manifest without poisoning the switched-away World's terms, and switching back
+re-approves them. This is the single most important non-regression in round 2.
+
+## Round-2 findings
+
+- **[ASK-7] `--all-instances` does not filter slugs through `inst_valid_slug`,
+  while `--world` does.** A registry file named `..json` yields slug `..` and
+  targets `lab/instances/../pkb` = the root lab — already bootstrapped earlier
+  in the same loop, so the effect is a redundant no-op, and a filename cannot
+  contain `/` so nothing outside `lab/` is reachable. Low severity, but the two
+  paths should validate identically. One line.
+- **[ASK-8] `verified_seal` defaults to `True`.** A future fourth caller that
+  forgets the flag silently asserts a verification it did not perform. Prefer a
+  required keyword argument, or invert the default so honesty is the fallback.
+- **[INFO] Hook placement is load-bearing and undocumented in code.** Both
+  hooks must stay between `_write_record` and `_refresh_kb_surfaces`. Now
+  recorded in ARCHITECTURE.md; a comment at each site would make it survive a
+  future refactor.
+- Round-1 ASK-2 through ASK-6 and the `_safe_term_slug` parity debt remain
+  open. None block ship; carry as tickets.
+
+## Architect action item — done
+
+Round-1's BLOCK-1 asked for ARCHITECTURE.md to name both entry points, and the
+builder correctly declined to edit my document. I have updated the data-flow
+section myself: it now names `mount()` (first mount) and `swap()` (every
+switch, plus every reseal via `_reseal_and_swap`), cites
+`world_routes.py:452` as the evidence, records the `verified_seal` /
+stamp split, and documents the approve-then-prune ordering constraint.
+
+## What QA should hammer
+
+The swap path had **zero** round-1 coverage and is the operator's real
+workflow, so weight it accordingly.
+
+1. **S1, the named security case, is still unwritten** and is the one test I
+   most want: plant a personal note with a unique token in a debt-finance-shaped
+   root, bootstrap, then assert `search_for_agents("<token>") == []` **and**
+   `retrieve_for_agents("<token>")["empty_reason"] == "no_match"` — proving the
+   search ran and still did not surface it. The builder's tests prove only the
+   approval-set half.
+2. **Swap chains.** `mount(A) → swap(B) → swap(A) → swap(B)`: assert
+   `approved_paths()` is exactly the current World's terms at every step, the
+   manifest does not grow, and no A-path survives into a B mount.
+3. **Reseal via `_reseal_and_swap`.** Delete a term in the librarian, reseal,
+   swap: assert the removed term's page is gone, its approval is pruned, the
+   remaining terms stay approved, and a *human-revoked* term is not resurrected.
+4. **Sticky-revocation round trip on the hot path.** Human-revoke a term →
+   swap away → swap back → assert still revoked. Then `revoke --auto` → swap →
+   assert everything returns.
+5. **`--all-instances` on a real multi-World lab.** Assert per-root manifests
+   appear under `lab/instances/<slug>/pkb/compiled/kb/`, that no `secrets.env`
+   is read/written/linked anywhere in the run, exit code 1 when one root fails
+   while others succeed, and behavior on a corrupt/quarantined registry record.
+6. **F3, unwritable `compiled/kb/` during mount and swap** — the one shipped-code
+   failure-mode row with no test.
+7. **The three perf thresholds**, still unmeasured: `gate_state(cheap=True)`
+   `< 5 ms` on the 351-approval `ai` root (note it still `stat`s every approved
+   path via `dangling_paths`), `bootstrap` `< 3 s`, `mount`/`swap` regression
+   `< 10%`.
+8. **Env note for the QA runner:** this worktree has no `.venv`; tests run under
+   `PYTHONPATH=src python3`, and `arail.config` needs `python-dotenv`.
+
+## Deferrals still outstanding (follow-up tickets, not ship blockers)
+
+`promote_bulk` + `/dac` bulk-select UI; the `/dac` empty-state block and the
+persistent `ARAIL_APPROVED_ONLY=off` banner; and the caller wiring for Buddy
+(`lab_brain`), researcher, goal drafter, `lab_brief`, `doctor`, and
+`GET /api/pkb/review`. Retrieval is fixed without them — these make the *empty*
+gate legible to a human, which matters less now that the gate will rarely be
+empty. File them; do not hold the sprint.

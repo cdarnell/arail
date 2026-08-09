@@ -146,20 +146,41 @@ sentinel file is the whole remediation — no code change, no re-review.
 
 ## Data flow
 
+**Two mount-family entry points, not one** (corrected in review round 1,
+BLOCK-1). `mount()` fires only on a lab that has never mounted a World —
+`portal/world_routes.py:452` is `wm.swap(catalog) if wm.current_mount() is not
+None else wm.mount(catalog)`, so every World *switch*, and every reseal via
+`_reseal_and_swap` (world-forge, term editor, librarian), goes through
+`swap()`. Both verify the seal and refuse on `SealMismatch` before staging, so
+both carry a real `seal.computed_sha256` and both stamp `world-seal:<sha12>`.
+The hook must exist in both or the mechanism fires roughly once per lab.
+
+Placement is ordering-sensitive in both: the hook goes **after**
+`_write_record` and **before** `_refresh_kb_surfaces`, because
+`_refresh_kb_surfaces` → `_prune_swept_approvals` → `prune_dangling` reconciles
+the manifest against disk. Approve-then-prune drops the outgoing World's swept
+approvals and keeps the incoming World's (their files exist). Prune-then-approve
+would be a no-op prune and would let corpses accumulate on the hot path.
+
 ```
                        ┌──────────────────────────────────────┐
-  sealed bundle ──────►│ world_mount.mount()                  │
-  (lab/worlds/<slug>)  │  1 load + verify_seal  (refuses here)│
+  sealed bundle ──────►│ world_mount.mount()   [first mount]  │
+  (lab/worlds/<slug>)  │ world_mount.swap()    [every switch] │
+                       │  1 load + verify_seal  (refuses here)│
                        │  2 _stage_files → _write_term_pages  │
                        │  2b _sweep_other_worlds              │
                        │  3 index                             │
                        │  4 write pointer                     │
-                       │ ►3.5 NEW auto_approve_world_terms()  │──┐
+                       │ ►4.5 auto_approve_world_terms(       │──┐
+                       │        verified_seal=True)           │  │
+                       │  5 _refresh_kb_surfaces → prune       │  │
                        └──────────────────────────────────────┘  │
                                                                  │ reconcile
-   ./arailctl pkb bootstrap [--dry-run|--all-instances]           │ terms.json
-        │  (explicit verb; also called once by `install`)         │ ∩ staged
-        └───────────────────────────────────────────────────────► │ terms/*.md
+   ./arailctl pkb bootstrap [--dry-run] [--world <slug>|--all-instances]
+        │  (explicit verb; also called once by `install`;         │ terms.json
+        │   verified_seal=False → stamps "world-terms:<sha12>",   │ ∩ staged
+        │   because resolve_world_bundle() does NOT verify_seal)  │ terms/*.md
+        └───────────────────────────────────────────────────────► │
                                                                  ▼
                                         compiled_kb.approve(paths, approver=
                                           "world-seal:<sha12>")
