@@ -148,26 +148,77 @@ def _lock_path(pkb_root: Path) -> Path:
     return pkb_root / ".cache" / "reembed.lock"
 
 
+def _read_lock_pid(path: Path) -> int | None:
+    """The PID written into a lock file, or None if it can't be read/
+    parsed (a corrupt/truncated lock file, e.g. from a crash mid-write,
+    is itself treated as stale by the caller)."""
+    try:
+        return int(path.read_text().strip())
+    except (OSError, ValueError):
+        return None
+
+
+def _pid_alive(pid: int) -> bool:
+    """Best-effort liveness check via signal 0 (no-op, just existence).
+    Errors we can't interpret default to "alive" -- the safe direction is
+    to under-recover (leave a merely-suspicious lock in place, which the
+    documented manual override still handles) rather than over-recover
+    (delete a live process's lock and race it)."""
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, OSError):
+        return True
+    return True
+
+
 class _ReembedLock:
     """O_EXCL lock file. Held for the duration of the write phase (not
-    --dry-run, which touches no shared state)."""
+    --dry-run, which touches no shared state).
+
+    REVIEW3.md "also fix": a lock surviving a SIGKILL/OOM/crashed process
+    used to wedge every subsequent ``pkb reembed`` against that root
+    forever, including the very run the degraded-KB message tells the
+    user to perform. ``acquire()`` now recovers a stale lock automatically
+    (the PID it names is no longer alive, or the file is corrupt/
+    unreadable) before falling back to the manual-removal message for a
+    lock that's genuinely held by a live process.
+    """
 
     def __init__(self, pkb_root: Path):
         self.path = _lock_path(pkb_root)
         self._fd: int | None = None
 
+    def _is_stale(self) -> bool:
+        pid = _read_lock_pid(self.path)
+        if pid is None:
+            return True  # unreadable/corrupt -- can't be a healthy lock
+        return not _pid_alive(pid)
+
     def acquire(self) -> None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            self._fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        except FileExistsError:
-            raise ReembedLocked(
-                f"another `pkb reembed` appears to already be running "
-                f"against this root (lock file exists: {self.path}). "
-                f"If you're certain none is (e.g. a previous run crashed "
-                f"without cleaning up), remove the lock file and re-run."
-            ) from None
-        os.write(self._fd, str(os.getpid()).encode("utf-8"))
+        recovered_once = False
+        while True:
+            try:
+                self._fd = os.open(str(self.path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+                os.write(self._fd, str(os.getpid()).encode("utf-8"))
+                return
+            except FileExistsError:
+                if not recovered_once and self._is_stale():
+                    recovered_once = True
+                    try:
+                        self.path.unlink()
+                    except FileNotFoundError:
+                        pass
+                    continue  # retry exactly once against the now-clear path
+                raise ReembedLocked(
+                    f"another `pkb reembed` appears to already be running "
+                    f"against this root (lock file exists: {self.path}, "
+                    f"held by a live process). If you're certain none is "
+                    f"(e.g. a process from a different PID namespace), "
+                    f"remove the lock file and re-run."
+                ) from None
 
     def release(self) -> None:
         if self._fd is not None:

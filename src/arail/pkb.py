@@ -732,6 +732,16 @@ def _semantic_search(
         pkb_index.set_degraded("empty", "pkb_pages table could not be opened")
         return []
 
+    # REVIEW3.md "also fix": reaching here IS evidence the table is
+    # non-empty (idx.count() > 0 above, and the table opened) — clear
+    # "empty" now rather than leaving it sticky forever once set. Without
+    # this, a table that starts empty (search sets "empty"), then becomes
+    # populated via an incremental _flush, keeps reporting degraded
+    # indefinitely even though every subsequent search actually succeeds:
+    # /api/pkb/search would stamp X-Retrieval-Status: degraded on healthy
+    # responses forever.
+    pkb_index.clear_degraded("empty")
+
     # C4/BLOCK-1: dimension + provenance, checked fresh on every search —
     # never served from a table that disagrees with the spec.
     ok, _reason = pkb_index.check_read_path_health(table, db_path)

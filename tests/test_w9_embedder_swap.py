@@ -154,6 +154,78 @@ def test_semantic_search_on_empty_index_makes_zero_embed_calls(isolated_pkb, mon
     assert "pkb reembed" in reason
 
 
+def test_empty_code_clears_once_the_index_is_populated(isolated_pkb):
+    """REVIEW3.md 'also fix': the "empty" code must not be sticky. Once
+    set (index genuinely empty), a later search against a now-populated
+    table must clear it -- otherwise a healthy response keeps reporting
+    degraded forever (and /api/pkb/search would stamp
+    X-Retrieval-Status: degraded on a perfectly good result)."""
+    import arail.pkb as pkb
+    import arail.pkb_index as pki
+
+    # First search: genuinely empty index -- sets "empty".
+    results = pkb._semantic_search("anything", isolated_pkb)
+    assert results == []
+    assert "empty" in pki.degraded_codes()
+
+    # Populate the index (e.g. via a real index_all rebuild).
+    notes = isolated_pkb / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    (notes / "findme.md").write_text("# findme\nunique marker zzqxflarp9000\n")
+    pkb.index_all(pkb_root=isolated_pkb, include_docs=False)
+
+    # A rebuild's own clear_degraded(None) already clears everything, so
+    # re-set "empty" by hand to prove THIS SEARCH clears it too, not just
+    # the rebuild -- the review's point is that the search path itself
+    # must clear it on evidence, independent of who last rebuilt.
+    pki.set_degraded("empty", "stale leftover from a previous check")
+
+    results = pkb.search("zzqxflarp9000", pkb_root=isolated_pkb)
+    assert results
+    assert "empty" not in pki.degraded_codes(), (
+        '"empty" must clear once a search actually finds the table populated')
+    ok, _ = pki.embedding_status()
+    assert ok is True
+
+
+def test_semantic_search_vector_search_error_after_health_check_passes_degrades(
+    isolated_pkb, monkeypatch
+):
+    """REVIEW3.md 'also fix' #3: search_vector's VectorSearchError branch
+    in _semantic_search was unexercised. Simulates a genuine backend
+    failure that check_read_path_health can't predict (dimension and
+    provenance both check out fine, but the actual kNN call still raises
+    -- e.g. a transient LanceDB error) and asserts it degrades ("dimension"
+    code, matching the existing branch) and falls through cleanly rather
+    than raising out of _semantic_search or silently returning []
+    unlogged."""
+    import arail.pkb as pkb
+    import arail.pkb_index as pki
+    from arail.vector_index import VectorIndex, VectorSearchError
+
+    notes = isolated_pkb / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    (notes / "findme.md").write_text("# findme\nunique marker zzqxflarp9000\n")
+    pkb.index_all(pkb_root=isolated_pkb, include_docs=False)
+
+    def raising_search_vector(self, vector, **kwargs):
+        raise VectorSearchError("simulated transient backend failure")
+
+    monkeypatch.setattr(VectorIndex, "search_vector", raising_search_vector)
+
+    results = pkb._semantic_search("zzqxflarp9000", isolated_pkb)
+
+    assert results == []
+    ok, reason = pki.embedding_status()
+    assert ok is False
+    assert "simulated transient backend failure" in reason
+
+    # search() must fall through to keyword, not propagate the exception.
+    results2 = pkb.search("zzqxflarp9000", pkb_root=isolated_pkb)
+    assert results2
+    assert all(r["source"] == "keyword" for r in results2)
+
+
 def test_semantic_search_never_calls_index_all_on_empty_index(isolated_pkb, monkeypatch):
     """The lazy `if idx.count() == 0: index_all(root)` call is REMOVED."""
     import arail.pkb as pkb

@@ -333,6 +333,69 @@ def test_total_zero_with_no_existing_table_succeeds_as_noop(tmp_path):
     assert result["completed"] == result["total"] == 0
 
 
+def test_shadow_verification_is_cardinality_only_documented_limitation(tmp_path):
+    """REVIEW3.md 'also fix' #3 (coverage half): the resume-time shadow
+    check is a row COUNT comparison (shadow row count == len(completed_
+    paths)), not a content/freshness check on the rows it trusts as
+    already-done. Demonstrates the concrete blind spot: a checkpoint
+    correctly names 2 of 3 real paths as completed, backed by a shadow
+    table with exactly those 2 real paths present -- but carrying a STALE
+    vector (as if embedded from old file content, never re-verified). The
+    count math is satisfied (2 shadow rows == 2 completed_paths; +1
+    freshly embedded remaining row == 3 == total), so resume trusts the
+    2 stale rows verbatim into the swapped-in live table rather than
+    re-checking their freshness. This is a known, filed limitation
+    (sprints/BACKLOG.md) -- not fixed this sprint per explicit
+    instruction; note it requires the completed paths to genuinely match
+    real corpus paths (an all-wrong-paths checkpoint, tried first while
+    writing this test, is actually caught: `remaining` is computed by
+    path-set membership, not by count, so wrong paths cause every real
+    row to be re-embedded and the final total-row check then correctly
+    trips ShadowBuildIncomplete)."""
+    import lancedb  # type: ignore[import-not-found]
+    from arail.vector_index import hash_embedding
+    from arail.dbspec.generated.models_registry import EMBEDDING_DIM, embedding_model
+    from arail.pkb import _current_spec_sha256
+
+    pkb_root = _make_pkb(tmp_path, n=3)  # real paths: notes/doc0.md, doc1.md, doc2.md
+
+    shadow_dir = reembed._shadow_dir(pkb_root)
+    shadow_dir.mkdir(parents=True)
+    db = lancedb.connect(str(shadow_dir))
+    stale_vector = hash_embedding("this is deliberately STALE content", dim=768)
+    db.create_table("pkb_pages", data=[
+        {"path": "notes/doc0.md", "name": "doc0.md", "vector": stale_vector,
+         "mtime": 0.0, "source_kind": "user"},
+        {"path": "notes/doc1.md", "name": "doc1.md", "vector": stale_vector,
+         "mtime": 0.0, "source_kind": "user"},
+    ], mode="overwrite")
+
+    reembed._write_checkpoint(pkb_root, {
+        "schema": reembed.SCHEMA, "model": embedding_model().name,
+        "dim": EMBEDDING_DIM, "spec_sha256": _current_spec_sha256(),
+        "started_at": "x", "total": 3,
+        "completed_paths": ["notes/doc0.md", "notes/doc1.md"], "batch": 32,
+    })
+
+    result = reembed.run(pkb_root, resume=True, include_docs=False)
+
+    # The checkpoint is trusted -- no discard -- because the counts line
+    # up (2 shadow rows == 2 completed_paths at resume time; 3 total rows
+    # after embedding the 1 remaining real row == total).
+    assert result["resume_discarded_reason"] is None, (
+        "documents the known gap: matching counts trust the 2 pre-existing "
+        "(here: deliberately stale) shadow rows without re-verifying them")
+    assert result["completed"] == result["total"] == 3
+
+    db2 = lancedb.connect(str(reembed._live_dir(pkb_root)))
+    table2 = db2.open_table("pkb_pages")
+    rows_by_path = {r["path"]: r for r in table2.to_pandas().to_dict("records")}
+    assert list(rows_by_path["notes/doc0.md"]["vector"]) == stale_vector, (
+        "the stale vector was carried through unverified into the swapped-in "
+        "live table -- the cardinality-only blind spot, filed in "
+        "sprints/BACKLOG.md, not fixed this sprint")
+
+
 # --------------------------------------------------------------------------
 # REVIEW2.md BLOCK-2 required test #4 — concurrent runs
 # --------------------------------------------------------------------------
@@ -346,6 +409,81 @@ def test_second_concurrent_run_is_refused_by_lock(tmp_path):
             reembed.run(pkb_root, include_docs=False)
     finally:
         lock.release()
+
+
+# --------------------------------------------------------------------------
+# REVIEW3.md "also fix" #2 — stale lock recovery
+# --------------------------------------------------------------------------
+
+def test_stale_lock_from_dead_pid_is_recovered_automatically(tmp_path):
+    """A lock file naming a PID that no longer exists (the SIGKILL/OOM/
+    crashed-process shape) must be recovered automatically -- otherwise
+    the degraded-KB message's own recommended remedy (`pkb reembed`) is
+    permanently refused."""
+    import os
+
+    pkb_root = _make_pkb(tmp_path, n=5)
+    lock_path = reembed._lock_path(pkb_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # A PID essentially guaranteed not to be alive.
+    dead_pid = 2**30
+    lock_path.write_text(str(dead_pid))
+
+    result = reembed.run(pkb_root, include_docs=False)
+
+    assert result["interrupted"] is False
+    assert result["completed"] == result["total"] == 5
+    assert not lock_path.exists(), "the lock must be cleanly released after the recovered run"
+
+
+def test_corrupt_lock_file_is_recovered_automatically(tmp_path):
+    """An unreadable/corrupt lock file (e.g. truncated by a crash mid-
+    write) is treated the same as a dead-PID lock -- there is no way for
+    it to represent a healthy in-progress run."""
+    pkb_root = _make_pkb(tmp_path, n=4)
+    lock_path = reembed._lock_path(pkb_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text("")  # empty / unparseable
+
+    result = reembed.run(pkb_root, include_docs=False)
+
+    assert result["completed"] == result["total"] == 4
+    assert not lock_path.exists()
+
+
+def test_live_pid_lock_is_not_recovered(tmp_path):
+    """A lock naming a genuinely alive process (this test process itself,
+    as a stand-in) must still be refused -- staleness recovery must not
+    become a way to steal a live process's lock."""
+    import os
+
+    pkb_root = _make_pkb(tmp_path, n=3)
+    lock_path = reembed._lock_path(pkb_root)
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    lock_path.write_text(str(os.getpid()))  # definitely alive: it's us
+
+    with pytest.raises(reembed.ReembedLocked):
+        reembed.run(pkb_root, include_docs=False)
+
+    assert lock_path.exists(), "a live-process lock must not be removed"
+    lock_path.unlink()  # test cleanup
+
+
+def test_pid_alive_helper():
+    import os
+    assert reembed._pid_alive(os.getpid()) is True
+    assert reembed._pid_alive(2**30) is False
+
+
+def test_read_lock_pid_helper(tmp_path):
+    p = tmp_path / "lock"
+    p.write_text("12345")
+    assert reembed._read_lock_pid(p) == 12345
+    p.write_text("not-a-number")
+    assert reembed._read_lock_pid(p) is None
+    missing = tmp_path / "nope"
+    assert reembed._read_lock_pid(missing) is None
 
 
 def test_lock_released_after_run_completes(tmp_path):

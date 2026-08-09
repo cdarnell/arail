@@ -886,3 +886,78 @@ when `retrieval_status()` reports not-ok. Both are small once located —
 the backend primitive (`pkb.retrieval_status()`) already exists and is
 tested; this is purely "find the two remaining call sites and read one
 tuple."
+
+---
+
+## `VectorIndex._table()` is re-opened three times per PKB query
+
+**Filed by:** REVIEW3.md's performance assessment, per the coordinator's
+explicit "do not optimize now" instruction —
+`sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build4.
+
+**The gap.** `pkb._semantic_search` now calls `idx.count()`, then
+`idx._table()` directly for the read-path health check, then
+`idx.search_vector()` opens the table a third time internally
+(`VectorIndex._table()` is not memoised — it re-resolves the table handle
+on every call, by design, since `VectorIndex` instances are typically
+short-lived per-call wrappers). Measured on a 116-row index:
+`_table()` alone costs **7.5 ms** of a **20.8 ms** total `pkb.search()`
+call — roughly a third of query latency is a table re-open the pre-W9
+code never paid for (`VectorIndex.search()` used to be the only
+table-touching call). The health check itself is not the cost (measured
+at 0.105 ms, one small provenance-sidecar JSON read).
+
+**Why it wasn't fixed now.** The coordinator ruled explicitly: measure
+and file, don't optimize this sprint — the fix (passing the
+already-opened `table` object into `search_vector`, or memoising
+`VectorIndex._table()`) is a real change to a hot path that deserves its
+own focused pass with its own before/after measurement, not a
+reflexive addition to an already-large integration sprint's diff.
+
+**What a future sprint should do:** either (a) give `_semantic_search`
+a variant that opens the table once and threads it through
+`check_read_path_health` and `search_vector` explicitly, or (b) add a
+small opt-in cache to `VectorIndex` (e.g. `_table_cache: Any | None`,
+invalidated by a generation counter or simply never reused across
+`VectorIndex` instances, since each call site already constructs a fresh
+one). `open_table` cost is expected to grow with LanceDB fragment count,
+so this gets worse, not better, as a World's PKB grows — worth doing
+before a World's corpus gets large enough for it to matter in practice.
+
+---
+
+## `pkb_reembed`'s shadow-build verification is cardinality-only, not content-aware
+
+**Filed by:** REVIEW3.md's "also fix" #3 (coverage half implemented; the
+underlying check itself was explicitly not upgraded) —
+`sprints/2026-08-08-arail2-tier1-integration/BUILD_LOG.md` build4.
+
+**The gap.** Both shadow-completeness checks BLOCK-2 added
+(`pkb_reembed.py`'s pre-swap check and its `--resume` checkpoint check)
+compare ROW COUNTS — `shadow_row_count == total` and `shadow_row_count ==
+len(completed_paths)` — never the actual path *identity* or row
+*content*. `tests/test_pkb_reembed.py::
+test_shadow_verification_is_cardinality_only_documented_limitation` pins
+the concrete, reproduced blind spot: a `--resume` checkpoint that
+correctly names some real corpus paths as already-completed, backed by a
+shadow table that genuinely has rows at those same paths but with a
+**stale vector** (as if embedded from old file content and never
+re-verified), is trusted verbatim into the swapped-in live table. The
+counts are satisfied, so nothing discards it. (A related but already-
+closed scenario: a checkpoint naming entirely WRONG paths as completed is
+actually still caught today — `remaining` is computed by path-set
+membership against the real corpus, not by subtracting a count, so wrong
+paths cause every real row to be re-embedded and the final
+`shadow_row_count != total` check trips correctly. The surviving gap is
+narrower: matching paths, unverified content.)
+
+**What a future sprint should do:** add a
+`set(shadow_table.to_pandas()["path"]) == set(completed_paths)` check
+alongside the existing count checks (cheap — one more `to_pandas()`
+column read), and/or re-embed and diff a sample of "already completed"
+rows on `--resume` rather than trusting them unconditionally. The
+narrowest fully-correct fix would key resumption on a hash of each row's
+`embed_input` rather than path alone, so a file whose *content* changed
+between the interrupted run and the resume is also caught — currently
+neither the count check nor a hypothetical path-set check would catch
+that case either.
