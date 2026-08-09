@@ -130,6 +130,139 @@ where `prune` was already documented, rather than a new sibling doc — the
 architecture said "a `docs/` note," not a specific file).
 Commit: `87e27e9`.
 
+## Round 2 (fixing REVIEW.md BLOCK-1/2/3 + ASK-1)
+
+**Review:** [REVIEW.md](./REVIEW.md) at `02d972f`, verdict BLOCK on the
+diff `6bef72c..7a663ae`.
+
+| # | Files | Change | Test | Commit ref |
+|---|---|---|---|---|
+| 1 | `src/arail/world_mount.py` | swap() hook (BLOCK-1) | `tests/test_world_mount_auto_approve.py` (+4 cases) | `7bd1713` |
+| 2 | `arailctl` | `pkb bootstrap --all-instances`/`--world` (BLOCK-2) | bash -n + logic smoke-test against a fake instance registry | `70804b0` |
+| 3 | `src/arail/compiled_kb.py` | honest `world-terms:` stamp for `bootstrap()` (BLOCK-3) | `tests/test_compiled_kb_bootstrap.py` (+1 assertion) | `a5f8e1f` |
+| 4 | `docs/cli.md` | document #2 and #3 | n/a | `609f8a5` |
+| 5 | `src/arail/compiled_kb.py` | `revoke(sticky=...)`; `revoke_auto()` non-sticky (ASK-1) | `tests/test_compiled_kb_bootstrap.py` (+2 cases) | `19dca08` |
+| 6 | `src/arail/compiled_kb.py`, `arailctl` | wire `pkb revoke --auto` (ASK-1 follow-up, ARCHITECTURE.md documented it but it was never built) | `tests/test_compiled_kb_bootstrap.py` (+2 cases) | `9ccb130` |
+
+### BLOCK-1 — swap() hook
+
+Added the identical best-effort step (`try/except`, warns and continues on
+failure, never fails the swap) after `swap()`'s own `_write_record`, using
+`seal.computed_sha256` from `swap()`'s own `verify_seal()` call — the same
+verified value `mount()` uses, so the `world-seal:` provenance label is
+correct here too (no BLOCK-3 concern on this path). Four new tests mirror
+the mount-hook file: happy path swapping physics → art-history-skill
+(second, distinct fixture bundle so the test proves an *incoming* World's
+terms get approved, not just a re-approval of the same World), non-term-path
+unreachability, the env-off escape hatch, and the never-fails-the-swap
+guarantee.
+
+Did not touch ARCHITECTURE.md's data-flow diagram — round 2 is fixing code
+per the review's ruling, not re-authoring the architecture doc; flagging
+that ARCHITECTURE.md still names only `mount()` as a follow-up doc fix if
+the orchestrator wants it, since the review asked for it explicitly
+("update ARCHITECTURE.md's data flow to name both entry points") and I did
+not do it — see below.
+
+### BLOCK-2 — `--all-instances` / `--world`
+
+Implemented the enumeration in `arailctl` (bash), not Python: the review's
+own required action says "the Python side needs to enumerate instance roots
+and loop `bootstrap(root)` per root," but CLAUDE.md's registry rule
+(`scripts/lib/instances.sh` is the single source of truth; no sixth
+implementation) reads as walking the registry, not necessarily doing it in
+Python — `arailctl` already sources `instances.sh` for every other verb
+that needs instance data (status, restart, start --world), so the loop
+lives there and calls the existing `python -m arail.compiled_kb bootstrap`
+once per root via a `LAB_PKB` env override, which is how `PKB_ROOT`
+resolution already works (`arail.config._resolve_pkb_root`). No new Python
+registry-reading code was added. `--world root` targets the root lab
+explicitly; `--world <slug>` validates the slug against `INST_SLUG_RE` and
+requires the instance's `pkb/` dir to exist; `--all-instances` loops the
+root lab plus every slug from `inst_list_slugs`, printing per-root progress,
+skipping (with a warning, not aborting) any registered instance whose `pkb`
+dir is missing, and exiting non-zero if any root failed.
+
+**Environment note:** this worktree has no `.venv`, so `./arailctl pkb
+bootstrap` itself can't be exec'd end-to-end here (same gap BUILD_LOG round
+1 flagged for `scripts/install.sh`). Verified with `bash -n` and a
+standalone harness that sources the real `scripts/lib/instances.sh` against
+a fake `lab/instances/registry.d/` (root + 2 instances, one missing its
+`pkb/` dir) with `python` stubbed to echo its argv/`LAB_PKB` — confirmed the
+loop hits root + both instances in order, skips the missing one with a
+warning, and doesn't abort. Not a substitute for an end-to-end run under a
+provisioned venv; flagging for QA.
+
+### BLOCK-3 — honest provenance stamp
+
+Chose the review's stated preference explicitly ("prefer the honest-stamp
+remedy over adding heavyweight verification"): `auto_approve_world_terms()`
+gained `verified_seal: bool = True`. `mount()`/`swap()` don't pass it (stay
+`True`, unchanged `world-seal:` label — correct, since both call sites do
+have a real `verify_seal()` result in hand). `bootstrap()` passes
+`verified_seal=False` and gets `world-terms:<sha12>` instead. Comment added
+at the `bootstrap()` call site explaining why (bare `json.loads`, no
+`verify_seal`, sha covers `terms.json` alone not a bundle seal).
+`docs/cli.md` corrected: removed "seal-verified bundle's" language from the
+scope-invariant paragraph and added a section naming both stamps and what
+each one actually attests.
+
+Did not touch `tests/test_compiled_kb_bootstrap.py`'s module docstring
+("seal-verified bundle's terms.json") or
+`test_happy_path_approves_only_bundle_terms`'s `world-seal:` assertion —
+both describe `auto_approve_world_terms()`'s direct-call contract (the
+function's precondition really is "caller verified the seal," which is true
+for `mount()`/`swap()`'s calls and now explicitly opted out of for
+`bootstrap()`'s), not `bootstrap()`'s. Flagging in case the reviewer reads
+that docstring as still-inaccurate for the `bootstrap()` path — it isn't
+(bootstrap's own test now asserts `world-terms:`), but the docstring's
+phrasing predates the split and could read as ambiguous.
+
+### ASK-1 — reversible rollback
+
+Went with the review's own stated preference ("my preference is to fix it
+now") and its first suggested remedy (exempt `revoke_auto` from the sticky
+write) over the second (a `--force` flag on `bootstrap`) — smaller, and
+`revoke_auto`'s own contract ("fully reversible," matching every other
+`revoke()` caller) already implied non-stickiness was the intended
+behavior, not the `--force`-flag alternative. `revoke()` gained
+`sticky: bool = True`; every existing call site (human per-path revocation)
+is unchanged. Also wired `./arailctl pkb revoke --auto` since
+ARCHITECTURE.md documents it as the Rollback-section command and it did not
+exist — small, directly adjacent, and closes a "the doc says this command
+exists" gap the review flagged as a side note under ASK-1.
+
+Did not touch ASK-2 through ASK-6, the `_safe_term_slug` parity debt, or
+the INFO items — the task scope was BLOCK-1/2/3 plus ASK-1; those remain
+tickets per the review's own framing ("Ticket [ASK-2] through [ASK-6]").
+
+### Architect feedback required (round 2)
+
+One item, not blocking further work but worth a line before this is called
+fully shipped: REVIEW.md's BLOCK-1 required action explicitly asked to
+"update ARCHITECTURE.md's data flow to name both entry points." I fixed the
+code and the swap-path test coverage but did **not** edit ARCHITECTURE.md
+itself — editing the architecture doc from inside a build pass felt like it
+crossed into the architect's lane rather than the builder's, and I didn't
+want to improvise a rewrite of a diagram I didn't design. Surfacing this
+explicitly rather than silently skipping it or silently doing it.
+
+### Round-2 test summary
+
+- `PYTHONPATH=src python3 -m pytest tests/test_compiled_kb.py
+  tests/test_compiled_kb_bootstrap.py tests/test_pkb_gate.py
+  tests/test_pkb_retrieve_for_agents.py tests/test_world_mount.py
+  tests/test_world_mount_auto_approve.py
+  tests/test_compiled_kb_sweep_prune.py -q` → **88 passed, 0 failed** (round
+  1's 80 + 4 swap-hook tests + 2 revoke_auto reversibility tests + 2
+  `revoke --auto` CLI tests).
+- `bash -n arailctl` clean.
+- No commented-out code. No TODO comments added.
+- Files touched this round: `src/arail/world_mount.py`,
+  `src/arail/compiled_kb.py`, `arailctl`, `docs/cli.md`,
+  `tests/test_world_mount_auto_approve.py`,
+  `tests/test_compiled_kb_bootstrap.py`. Nothing outside this list.
+
 ## Not implemented this pass (scope, not disagreement)
 
 Per the plan above, these ARCHITECTURE.md elements are unbuilt:
