@@ -887,6 +887,23 @@ the backend primitive (`pkb.retrieval_status()`) already exists and is
 tested; this is purely "find the two remaining call sites and read one
 tuple."
 
+**Hard constraint added by QA (TEST_REPORT.md QA-6, 2026-08-08):** (b)
+must NOT be built as a naive read of `retrieval_status()` on its own. The
+Compiled-KB gate ships on by default with nothing approved on all six of
+the operator's real PKB roots (pre-existing, Phase 1 audit A36,
+`compiled_kb.py:109` failing closed) — so `search_for_agents` /
+`pkb.search(approved_only=True)` returns `[]` **before**
+`_semantic_search` ever runs, and no degraded code is ever set.
+`retrieval_status()` therefore reports `(True, "")` — healthy — on
+exactly the same legacy World where Buddy gets zero hits. A context
+header built exactly as C1 specifies, wired straight to
+`retrieval_status()`, would print a **false "retrieval healthy"** right
+next to zero results. Whoever builds (b) must first make the agent path
+itself consult the gate/approved-count state (not just the embedding
+degraded-codes) before trusting `retrieval_status()` for this surface —
+see `tests/test_qa_tier1_buddy_retrieval.py::test_agent_retrieval_returns_nothing_and_reports_healthy_on_a_legacy_world`,
+which pins the hazard.
+
 ---
 
 ## `VectorIndex._table()` is re-opened three times per PKB query
@@ -900,12 +917,17 @@ explicit "do not optimize now" instruction —
 `idx.search_vector()` opens the table a third time internally
 (`VectorIndex._table()` is not memoised — it re-resolves the table handle
 on every call, by design, since `VectorIndex` instances are typically
-short-lived per-call wrappers). Measured on a 116-row index:
-`_table()` alone costs **7.5 ms** of a **20.8 ms** total `pkb.search()`
-call — roughly a third of query latency is a table re-open the pre-W9
-code never paid for (`VectorIndex.search()` used to be the only
-table-touching call). The health check itself is not the cost (measured
-at 0.105 ms, one small provenance-sidecar JSON read).
+short-lived per-call wrappers). The health check itself is not the cost
+(measured at 0.105 ms, one small provenance-sidecar JSON read).
+
+**Correction (QA, TEST_REPORT.md, 2026-08-08):** REVIEW3's original
+measurement of `_table()` at 7.5 ms of a 20.8 ms `pkb.search()` call was
+overstated — QA measured the real call directly and got **0.39–1.21 ms**
+per `_table()` open on realistic corpora, roughly an order of magnitude
+lower. The triple-open shape described below is still real and still
+worth fixing eventually, but it is not the hot-path emergency the
+original number implied; treat this entry as lower urgency than its
+original framing.
 
 **Why it wasn't fixed now.** The coordinator ruled explicitly: measure
 and file, don't optimize this sprint — the fix (passing the
