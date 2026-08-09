@@ -1265,3 +1265,106 @@ empty, as required.
 - documentation task (`pkb_index.py` docstring + `CLAUDE.md` line)
 - this
   BUILD_LOG entry.
+
+# Build7: TEST_REPORT.md FAIL remediation (QA-4/QA-5, QA-6 constraint)
+
+QA committed 72 tests and left five red as the acceptance criterion:
+`tests/test_qa_tier1_search_header_safety.py`'s
+`test_a_hostile_provider_message_cannot_split_the_response[non-latin1]`
+and `test_the_real_degraded_messages_can_actually_be_served` ×4.
+
+## QA-5 (ship-blocker) + QA-4 (shares the call site)
+
+**Fix.** `api_pkb_search` (`src/arail/portal/app.py`) stamped
+`X-Retrieval-Reason: reason[:200]` directly. Every degraded reason
+`pkb_index`/`pkb` produce contains an em dash (U+2014); Starlette encodes
+response headers as latin-1, so the header construction itself raised
+`UnicodeEncodeError` and the endpoint 500'd on four of five real Worlds
+plus the root lab (legacy dimension), any unbuilt index (empty), and
+every clean machine that hasn't pulled `nomic-embed-text` yet (provider).
+At `8cb5760` this endpoint was `return pkb_search(q.strip())` and could
+not 500 — a straight regression from this sprint's own C1 work.
+
+Added `_header_safe()`: strips CR/LF/NUL first (QA-4 — the same call
+site reflects up to 400 bytes of a provider's raw HTTP error body via
+`EmbeddingError`, a response-header-injection surface in `LAB_MODE=hybrid`
+where the provider is off-box), then ASCII-folds (`encode("ascii",
+"replace")`) anything left outside latin-1's safe range, so nothing can
+ever reach Starlette's latin-1 header encoder. One call site, one
+sanitisation pass, closes both findings.
+
+**The test-design fix (the more valuable half, per QA's framing).**
+`tests/test_pkb_search_api_status.py` missed this because its fixture
+reason was a hand-written ASCII string the product never emits.
+Rewrote `test_the_real_degraded_messages_can_actually_be_served` in
+`tests/test_qa_tier1_search_header_safety.py` to *trigger the real code
+paths* instead of hand-copying reason text: a real legacy 128-dim table
+with no sidecar (dimension mismatch via `pkb.search`'s real
+`check_read_path_health` call), a real 768-dim table with no provenance
+sidecar (`provenance-missing`), a real from-scratch root with no index at
+all inspected via `ensure_ready(build=False)` (the doctor/diagnostic
+"empty" message) and via `pkb.search` itself (the search-path "empty"
+message — a different call site, different string). Each scenario reads
+the real reason back through `pkb.retrieval_status()` rather than a
+literal, and asserts it still contains an em dash (the hazard this test
+exists to exercise) before feeding it through `api_pkb_search`. This
+class of test can no longer silently drift out of sync with what
+`pkb_index`/`pkb` actually say.
+
+Also removed the inline `pytest.xfail(...)` branch that was marking the
+CRLF/LF/CR/NUL parameters of
+`test_a_hostile_provider_message_cannot_split_the_response` as expected
+failures (QA-4) — the same `_header_safe()` fix closes those too.
+
+**Result:** `tests/test_qa_tier1_search_header_safety.py`: 11 tests, all
+passing (was 5 pass / 4 xfail(inline) / 2 fail... — net: the 5 previously
+red tests plus the 4 previously-inline-xfailed CRLF/LF/CR/NUL parameters
+are now green, nothing newly skipped).
+
+## QA-6 — not fixed, per explicit instruction; BACKLOG constraint recorded
+
+Pre-existing (Phase 1 audit A36, `compiled_kb.py:109` failing closed with
+the gate on by default): `search_for_agents`/`pkb.search(approved_only=
+True)` returns `[]` before `_semantic_search` ever runs when nothing is
+approved yet (all six real PKB roots today), so no degraded code is ever
+set and `retrieval_status()` reports `(True, "")` — healthy — while Buddy
+gets zero hits. Out of scope; not touched.
+
+Updated the "C1's `/knowledge` banner and Buddy context-header wiring —
+deferred" entry in `sprints/BACKLOG.md` to record the hard constraint QA
+surfaced: the deferred Buddy context-header surface must NOT be built as
+a naive `retrieval_status()` read, or it will print a false "retrieval
+healthy" right next to zero results. Whoever builds it must first make
+the agent path consult the gate/approved-count state. Points at
+`test_agent_retrieval_returns_nothing_and_reports_healthy_on_a_legacy_world`,
+which already pins the hazard.
+
+## `_table()` latency — BACKLOG correction, not a fix
+
+Per the coordinator's explicit instruction, did not optimise
+`VectorIndex._table()`. Corrected the BACKLOG entry's measurement: QA
+measured the real call directly at **0.39–1.21 ms**, not REVIEW3's
+original 7.5 ms estimate (roughly an order of magnitude lower) — the
+triple-open shape is still real and still filed, but at a materially
+lower urgency than the original framing implied.
+
+## Regression check
+
+`tests/test_qa_tier1_search_header_safety.py` (11), plus the rest of the
+sprint's QA suite (`test_pkb_search_api_status.py`,
+`test_qa_tier1_buddy_retrieval.py`, `test_qa_tier1_egress_guard.py`,
+`test_qa_tier1_reembed_robustness.py`, `test_qa_tier1_clean_machine.py`,
+`tests/setup_ladder/test_setup_ladder_qa_nomic.py`): **72 passed, 3
+xfailed** (QA-1/QA-2/QA-3, `xfail(strict=True)`, unaffected by this round
+and out of scope), 0 failed. Broader `-k "qa_tier1 or pkb or reembed"`
+across the full `tests/` tree: 215 passed, 3 xfailed, 0 failed.
+
+Boundary check (`git diff --stat e1f2ef7..HEAD -- src/arail/world_mount.py
+scripts/start.sh scripts/lib/instances.sh src/arail/wiki_vectors.py`)
+empty, as required.
+
+## Commit this invocation
+
+- fix (`app.py` `_header_safe` + test rewrite for QA-4/QA-5)
+- docs (`BACKLOG.md`: QA-6 constraint + `_table()` correction)
+- this BUILD_LOG entry.
