@@ -998,6 +998,35 @@ LOGSEOF
         fi
         say "doctor: OK"
         ;;
+    db)
+        # Declarative persistence: the spec tree in spec/ is the source of
+        # truth; SQLite, LanceDB, and the generated resolver/registry are all
+        # compiled from it. Never hand-edit the database.
+        op="${1:-}"; shift || true
+        case "$op" in
+            plan|apply|doctor|optimize|drift|migrate) ;;
+            ""|help|-h|--help)
+                cat <<'EOF'
+Usage: ./arailctl db <command> [options]
+
+  plan       Diff spec vs actual across SQLite and LanceDB. No writes.
+  apply      atlas schema apply + reconcile --apply + regenerate code.
+  doctor     Integrity checks, reported per user. Exit 3 on errors.
+  optimize   Compact Lance tables and prune retained versions.
+  drift      CI gate. Exit 3 if actual does not match the spec.
+  migrate    One-shot 1.x -> 2.0 migration. Dry-run unless --apply.
+
+Common options: --data-dir DIR  --pkb-root DIR  --spec-dir DIR
+EOF
+                exit 0
+                ;;
+            *) die "db command must be one of: plan | apply | doctor | optimize | drift | migrate" ;;
+        esac
+        [[ -d .venv ]] || die "missing .venv — run ./arailctl setup"
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+        exec python -m arail.dbspec.cli "$op" "$@"
+        ;;
     pkb)
         op="${1:-}"; shift || true
         case "$op" in
@@ -1099,7 +1128,80 @@ LOGSEOF
                 source .venv/bin/activate
                 exec python -m arail.compiled_kb revoke "$@"
                 ;;
-            *) die "pkb op must be one of: ingest | compile | browse | prune | bootstrap | revoke" ;;
+            reembed)
+                # C2 (ARCHITECTURE.md, arail2-tier1-integration): the ONLY
+                # path that (re)writes pkb_pages with the spec-declared
+                # embedder. Never triggered implicitly by search or ingest.
+                [[ -d .venv ]] || die "missing .venv — run ./arailctl setup"
+                # shellcheck disable=SC1091
+                source .venv/bin/activate
+
+                _reembed_world=""; _reembed_root=0; _reembed_all=0
+                _reembed_extra=()
+                while [[ $# -gt 0 ]]; do
+                    case "$1" in
+                        --world) _reembed_world="${2:-}"; shift 2 ;;
+                        --root) _reembed_root=1; shift ;;
+                        --all) _reembed_all=1; shift ;;
+                        --resume|--dry-run|--yes) _reembed_extra+=("$1"); shift ;;
+                        *) die "unknown flag for pkb reembed: $1" ;;
+                    esac
+                done
+
+                _reembed_targets=()   # "label:path" pairs
+                if [[ "$_reembed_all" == "1" ]]; then
+                    _reembed_targets+=("root:$REPO_ROOT/lab/pkb")
+                    while IFS= read -r _reembed_slug; do
+                        [[ -n "$_reembed_slug" ]] || continue
+                        _reembed_targets+=("$_reembed_slug:$(inst_pkb_dir "$_reembed_slug")")
+                    done < <(inst_list_slugs)
+                elif [[ "$_reembed_root" == "1" ]]; then
+                    _reembed_targets+=("root:$REPO_ROOT/lab/pkb")
+                elif [[ -n "$_reembed_world" ]]; then
+                    _reembed_targets+=("$_reembed_world:$(inst_pkb_dir "$_reembed_world")")
+                else
+                    die "pkb reembed requires --world <slug> | --root | --all"
+                fi
+
+                # bash 3.2 (A2): "${arr[@]}" on a ZERO-element array aborts
+                # under `set -u` — _reembed_extra is legitimately empty when
+                # none of --resume/--dry-run/--yes were passed. Same guard
+                # pattern as `restart`'s _switch_live (arailctl:708).
+                _reembed_status=0
+                for _reembed_t in "${_reembed_targets[@]}"; do
+                    _reembed_label="${_reembed_t%%:*}"
+                    _reembed_path="${_reembed_t#*:}"
+                    python -m arail.pkb_reembed --pkb-root "$_reembed_path" \
+                        --world-label "$_reembed_label" \
+                        ${_reembed_extra[@]+"${_reembed_extra[@]}"} \
+                        || _reembed_status=$?
+                done
+                exit "$_reembed_status"
+                ;;
+            ""|help|-h|--help)
+                cat <<'EOF'
+Usage: ./arailctl pkb <op> [options]
+
+  ingest   Process inbox/ into sources/
+  compile  Merge sources/ + agents/ + notes/ into compiled/ + index.md
+  browse   Search and list the knowledge base
+  prune    Drop Compiled-KB approvals whose raw file is gone
+  bootstrap Backfill the Compiled KB so gate_state() leaves "unbootstrapped":
+             --world <slug>     one World instance (or `root` for the root lab)
+             --all-instances    the root lab plus every registered World
+             --dry-run          report what would be approved; write nothing
+  revoke   Roll back Compiled-KB approvals:
+             --auto       undo the mount/swap/bootstrap auto-approval
+                          (non-sticky — reversible by the next mount)
+  reembed  Explicit, resumable re-embed of the vector index (C2):
+             --world <slug> | --root | --all   (required, pick one)
+             --resume     resume from the last checkpoint
+             --dry-run    print row count + ETA; write nothing
+             --yes        reserved (this verb never prompts)
+EOF
+                exit 0
+                ;;
+            *) die "pkb op must be one of: ingest | compile | browse | prune | bootstrap | revoke | reembed" ;;
         esac
         ;;
     wiki)

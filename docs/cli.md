@@ -451,6 +451,44 @@ Tail `lab/data/activity.jsonl`, optionally filtered by component
 (`browser`\|`system`\|`researcher`\|`goal`\|`wiki`\|`pkb`\|`chat`\|`consent`).
 Unchanged.
 
+### `db <op>`
+
+Declarative persistence. The spec tree in `spec/` is the source of truth;
+SQLite, the LanceDB tables, and the generated resolver/registry are all
+compiled from it. Never hand-edit the database or the generated files —
+edit the spec and re-apply.
+
+| Op | What it does | Exit |
+|----|--------------|------|
+| `plan` | Diff spec vs actual across both stores. No writes. | `0` |
+| `apply` | Generate + lint a migration, `atlas schema apply`, reconcile the vector tables, regenerate code, record the spec version. | `0`, `1` on lint failure |
+| `doctor` | Integrity checks, reported **per user**. | `0` clean, `3` on errors |
+| `optimize` | Compact Lance tables and prune retained versions. | `0` |
+| `drift` | CI gate — does actual match the spec? | `0` in sync, `3` on drift |
+| `migrate` | One-shot 1.x → 2.0 data migration. | `0` |
+
+Common options: `--data-dir DIR`, `--pkb-root DIR`, `--spec-dir DIR`
+(accepted before or after the op). `apply` takes `--allow-destructive` for
+vector rebuilds; `migrate` takes `--lab-root DIR`, `--user NAME`, `--apply`.
+
+**`plan`, `drift`, and `migrate` are dry-run by default** — `migrate` writes
+nothing without `--apply`, and never modifies or deletes the 1.x source data.
+
+Destructive vector changes (dimension, distance metric, index type) require a
+rebuild and are **refused** unless `--allow-destructive` is passed. Safe
+changes (add/drop/retype column, create/drop index) auto-apply.
+
+`doctor` reports per user so single-user corruption is visible rather than
+averaged away. It checks orphaned `content_refs`, embedding model/dimension
+drift against the spec, degenerate vectors, fragment counts, retained
+versions, missing vector indexes, and worlds with no entities.
+
+> **Note on migration lint.** Since Atlas v0.38 `atlas migrate lint` requires
+> an Atlas Pro login and exits non-zero *without linting*. When that happens
+> `apply` runs a narrower local destructive-statement gate instead and says so
+> in its output — a gate that did not run is never reported as a gate that
+> passed. Run `atlas login` to get full lint with no code change.
+
 ### `pkb <op>`
 
 `ingest`\|`compile`\|`browse` — ARAIL lab knowledge-base content ops.
@@ -550,6 +588,54 @@ this — revocation is via the Knowledge page's Compiled KB review, or
 it. `./arailctl pkb bootstrap` is also the door for a lab whose World was
 mounted before this sprint shipped — those bundles are already sealed and
 will never re-enter a mount path on their own, so they need one manual run.
+
+`reembed` — explicit, resumable re-embed of one World's (or the root
+lab's) `pkb_pages` vector index with the spec-declared embedding provider
+(C2, `sprints/2026-08-08-arail2-tier1-integration/`). This is the **only**
+path that (re)writes vectors — nothing else triggers a network embed call;
+in particular, an empty or stale index degrades honestly (a status message
+naming this command) instead of embedding on demand from inside a search
+request.
+
+| Flag | Effect |
+|---|---|
+| `--world <slug>` \| `--root` \| `--all` | Target one World, the root lab, or every mounted World + root (exactly one required) |
+| `--resume` | Resume from the last checkpoint; refuses if the checkpoint's model/dimension/spec disagree with the current spec (never mixes vector spaces) |
+| `--dry-run` | Print row count and an ETA from a 32-row timing probe; writes nothing |
+| `--yes` | Reserved; this verb never prompts today |
+
+Mechanics: vectors are written into a shadow build
+(`<pkb_root>/.cache/lancedb.next/`) batch by batch, with a checkpoint
+(`<pkb_root>/.cache/reembed-state.json`) written after every batch. Before
+swapping, the shadow build's actual row count is re-read from LanceDB and
+compared against the expected total — a mismatch (e.g. an external
+cleanup removed `.next`, or a `--resume` checkpoint's claim disagrees
+with what's actually in the shadow table) discards the shadow build and
+checkpoint and refuses to swap, rather than putting a truncated index
+live. A `total == 0` scan is also refused if a live table already
+exists — an empty result never replaces a populated index. Only once the
+shadow build is verified complete does the live table get replaced — the
+previous table is renamed to `pkb_pages.lance.bak-<ts>` first, so a crash
+between steps leaves either the old table or the old table plus a
+discardable `.next` directory, never a half-embedded live index. An
+`O_EXCL` lock file (`<pkb_root>/.cache/reembed.lock`) prevents two
+concurrent runs against the same root; a second run refuses immediately
+with an actionable message rather than racing LanceDB's own transaction
+conflict resolver. SIGINT stops queuing new batches (the in-flight batch
+finishes and checkpoints normally) and exits `130`; resume with
+`--resume`. A provenance sidecar (`pkb_pages.provenance.json`) is written
+last, after the swap.
+
+On a warm Ollama, expect roughly 75–134 rows/s (measured on the live
+`ai`/`video-games` worlds — see RESULTS.md in the sprint above); a
+5,000-row lab is a ~60s operation. That visibility is the point of having
+an explicit verb instead of an implicit one.
+
+Exit: `0` ok · `1` error (LanceDB unavailable, `--resume` checkpoint spec
+or shadow-build mismatch, empty corpus against an existing live table,
+another `pkb reembed` already running against this root) · `2` the given
+`--pkb-root` doesn't exist · `4` the embedding provider is unavailable
+(`EmbeddingError`) · `130` interrupted (resume with `--resume`).
 
 ### `wiki <op>`
 

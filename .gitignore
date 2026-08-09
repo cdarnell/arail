@@ -85,6 +85,10 @@ lab/pkb/research/*
 lab/pkb/skills/
 lab/pkb/sources/seeds/
 lab/pkb/index.md
+# Retrieval A/B harness scratch indexes (scripts/eval/retrieval_ab.py) —
+# never committed; the committed artifacts are the fixtures + results.json.
+lab/.eval-cache/
+
 # Open Notebook container runtime state
 compose/open-notebook/data/
 compose/open-notebook/surreal/
