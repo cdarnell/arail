@@ -208,19 +208,15 @@ def test_the_real_clean_machine_provider_message_can_actually_be_served(
         "sanitisation and the 200-char truncation")
 
 
-@pytest.mark.xfail(strict=True, reason="QA-7: _header_safe strips only "
-                                       "CR/LF/NUL; other C0 controls from a "
-                                       "provider error body still reach the "
-                                       "header and 500 on the wire")
 @pytest.mark.parametrize("code", [0x0b, 0x0c, 0x1b, 0x07, 0x7f])
 def test_other_control_characters_are_also_removed(monkeypatch, code):
-    """QA-7 — the residual of the QA-4/QA-5 fix.
+    """QA-7 — the residual of the QA-4/QA-5 fix, closed.
 
-    ``_header_safe`` removes CR/LF/NUL by denylist and ASCII-folds
-    everything above 0x7f. Every *other* C0 control passes through
+    ``_header_safe`` used to remove CR/LF/NUL by denylist and ASCII-fold
+    everything above 0x7f. Every *other* C0 control passed through
     unchanged, and they are not inert: ``h11`` rejects VT (0x0b) and FF
     (0x0c), and uvicorn's httptools transport rejects 29 of the 31 — both
-    verified directly. That is the identical 500 QA-5 was, reached by a
+    verified directly. That was the identical 500 QA-5 was, reached by a
     different byte.
 
     Reachable the same way QA-4 is: ``embed._post`` splices up to 400
@@ -228,8 +224,9 @@ def test_other_control_characters_are_also_removed(monkeypatch, code):
     ``LAB_MODE=hybrid`` that provider is off-box. An ANSI-coloured or
     non-JSON error page is enough.
 
-    An allowlist (keep printable ASCII plus space and tab) closes the
-    whole class instead of three members of it.
+    Fixed by switching to an allowlist (printable ASCII plus tab and the
+    space a folded line break leaves behind), which closes the whole
+    class instead of naming members of it one at a time.
     """
     monkeypatch.setattr(portal_app, "pkb_search", lambda q: [])
     monkeypatch.setattr("arail.pkb.retrieval_status",
