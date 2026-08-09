@@ -1368,3 +1368,107 @@ empty, as required.
 - fix (`app.py` `_header_safe` + test rewrite for QA-4/QA-5)
 - docs (`BACKLOG.md`: QA-6 constraint + `_table()` correction)
 - this BUILD_LOG entry.
+
+# Build8: QA round 2 WEAK_PASS — last pass, QA-1/QA-2/QA-3/QA-7
+
+QA round 2 confirmed QA-5 genuinely dead (200 in all five degraded states
+against scratch copies of real Worlds) and the rewritten test honest
+(four independent mutations turn it red). One item left: file or fix
+QA-1, QA-2, QA-3, QA-7. Fixed all four; this is the last build pass.
+
+## QA-7 — `_header_safe` denylist → allowlist
+
+**Fix.** The QA-4/QA-5 fix denylisted CR/LF/NUL and ASCII-folded above
+0x7f. Every other C0 control (VT, FF, ESC, BEL, ...) passed through
+unchanged — not inert: `h11` rejects VT/FF outright, uvicorn's
+httptools transport rejects 29 of the 31, the identical 500 QA-5 was,
+through the identical route (up to 400 bytes of a provider's raw HTTP
+error body, off-box in `LAB_MODE=hybrid`). Switched `_header_safe` to an
+**allowlist** (printable ASCII `0x20`–`0x7e`, plus tab and the space a
+folded line break leaves behind) — closes the whole class rather than
+another denylist entry.
+
+**Also folded in, per instruction, non-blocking:** em dash → `--` before
+filtering, so the common degraded-reason prose reads naturally instead
+of just losing the punctuation to the filter; and line breaks now become
+a space rather than vanishing outright, so the multi-line `provider`
+message no longer runs words together at the joins (`...refused).Start
+it with:...` → `...refused). Start it with:...`). Order: line-break →
+space, then em dash → `--`, then allowlist-filter — the allowlist step
+is what actually guarantees safety; the first two are readability-only
+and run before it so their output survives the filter.
+
+Dropped the `xfail(strict=True)` marker on
+`test_other_control_characters_are_also_removed` (5 params) now that the
+fix closes it.
+
+## QA-1 — same-second backup name collision
+
+**Fix.** `pkb_pages.lance.bak-<int(time.time())>` is second-resolution;
+two reembeds completing in the same wall-clock second computed the same
+backup name and the second `os.replace()` raised a bare
+`OSError(ENOTEMPTY)` past every handler in `main()`. The backup-naming
+step now loops an incrementing suffix until it finds a name nothing is
+using, rather than assuming the timestamp alone is unique. (The test
+does not expect the second run to raise at all — a normal same-second
+re-run must simply succeed, which this now does.)
+
+## QA-2 — unwritable `.cache` raised a bare `PermissionError`
+
+**Fix.** Added `ReembedIOError(RuntimeError)`. `run()`'s call into the
+locked write phase (`_run_locked`) is now wrapped in `except OSError as
+e: raise ReembedIOError(...) from e` with a message naming the directory
+to check and the exact recovery command
+(`./arailctl pkb reembed`). `ReembedIOError` is a `RuntimeError`
+subclass, so `main()`'s existing `except RuntimeError as e: print(f"error:
+{e}", ...); return 1` already reports it the same actionable way as every
+other failure mode in this verb — no change needed there. Verified this
+doesn't shadow the four more-specific RuntimeError subclasses
+(`CheckpointSpecMismatch`, `ShadowBuildIncomplete`, `EmptyCorpusRefused`,
+`ReembedLocked`): none of those is ever raised as an `OSError`, so the
+`except OSError` clause only ever catches genuine filesystem failures.
+
+## QA-3 — empty-corpus sidecar with no table
+
+**Fix.** An empty corpus with no pre-existing live table never creates
+`table` in the batch loop (nothing to iterate) and never populates
+`shadow_table`, so there was nothing to swap into the live dir — but
+`pkb_provenance.write()` ran unconditionally regardless, leaving a
+sidecar describing a table that was never written. Tracked
+`live_table_exists` through both the backup-and-swap step and the
+shadow-swap step, and gated the provenance write on it actually being
+`True` afterward.
+
+## Zero strict-xfail surprises
+
+Dropped all four markers (`test_two_reembeds_completing_in_the_same_
+second_do_not_crash`, `test_reembed_on_an_unwritable_cache_reports_
+actionably`, `test_empty_corpus_does_not_leave_a_sidecar_without_a_table`,
+`test_other_control_characters_are_also_removed` ×5 params) at the same
+time as their fixes, in the same commits — none left behind to XPASS-fail
+on QA's re-run.
+
+## Regression check
+
+`tests/test_qa_tier1_reembed_robustness.py` + `tests/test_qa_tier1_
+search_header_safety.py`: **31 passed**, 0 xfailed, 0 failed (was 26 + 11
+inc. 3 + 5 xfail entries — every one of them now runs as a plain pass).
+Broader `-k "qa_tier1 or pkb or reembed"` across the full `tests/` tree:
+**224 passed**, 0 xfailed, 0 failed (up from 215 passed / 3 xfailed —
+exactly the three QA markers dropped). Full unfiltered suite pending at
+time of writing (background job; final total to be confirmed before
+handoff, expected to match Build6/Build7's pre-existing 52F/7E in the
+same six unrelated files, now with 4364+ passed given the +9 tests
+converted from xfail/fail to plain pass across this and the prior round).
+
+Boundary check (`git diff --stat e1f2ef7..HEAD -- src/arail/world_mount.py
+scripts/start.sh scripts/lib/instances.sh src/arail/wiki_vectors.py`)
+empty, as required.
+
+## Commit this invocation
+
+- fix (`app.py` `_header_safe` allowlist + em-dash/line-break readability
+  + QA-7 test)
+- fix (`pkb_reembed.py` `ReembedIOError` + backup-name loop + sidecar
+  gating + QA-1/QA-2/QA-3 tests)
+- this BUILD_LOG entry.
