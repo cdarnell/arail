@@ -242,3 +242,98 @@ def test_degraded_empty_code_from_root_a_readonly_check_leaks_into_root_b_status
     assert ok_b_as_reported is False, (
         "documents the known limitation: global degraded state does not "
         "distinguish which root a code applies to")
+
+
+# --------------------------------------------------------------------------
+# REVIEW4.md ASK-1 — a read-only call must not redirect _pkb_root_cache
+# --------------------------------------------------------------------------
+#
+# The ORCH-1 fix (per-root `_initialized_roots`) left `_pkb_root_cache =
+# root` OUTSIDE the `if build:` guard, one line below. Verified by the
+# reviewer: `ensure_ready(E, build=True)` then `ensure_ready(F,
+# build=False)` left `_pkb_root_cache == F`. Because `_flush()` resolves
+# `root = _pkb_root_cache` and joins it against `_pending`'s ROOT-RELATIVE
+# paths, a redirected cache is a cross-World data WRITE (or delete) --
+# strictly worse than ORCH-1's silent no-op. Fixed by moving the
+# assignment inside `if build:`; these tests pin it.
+
+def test_readonly_call_does_not_redirect_pkb_root_cache(tmp_path):
+    import arail.pkb_index as pki
+
+    root_e = _make_root(tmp_path, "world_e")
+    root_f = _make_root(tmp_path, "world_f")
+
+    pki.ensure_ready(root_e, build=True)
+    with pki._lock:
+        cache_after_e = pki._pkb_root_cache
+    assert cache_after_e == root_e
+
+    pki.ensure_ready(root_f, build=False)   # doctor-style read-only check on F
+    with pki._lock:
+        cache_after_f_readonly = pki._pkb_root_cache
+    assert cache_after_f_readonly == root_e, (
+        "a read-only call on a DIFFERENT root must not redirect the "
+        "process-wide flush target (_pkb_root_cache)")
+
+
+def test_readonly_call_on_same_root_does_not_disturb_cache(tmp_path):
+    """Same-root read-only calls are the common case (doctor checking the
+    World that's also running in the portal, in a hypothetical shared
+    process) -- must be a true no-op on the cache, not just a no-op that
+    happens to reassign the same value."""
+    import arail.pkb_index as pki
+
+    root = _make_root(tmp_path, "world")
+    pki.ensure_ready(root, build=True)
+
+    # Corrupt the cache deliberately to a sentinel so we can tell whether
+    # the read-only call touches it AT ALL (reassigning the same root
+    # would hide a bug where the guard was removed but the line kept).
+    sentinel = object()
+    with pki._lock:
+        pki._pkb_root_cache = sentinel  # type: ignore[assignment]
+
+    pki.ensure_ready(root, build=False)
+
+    with pki._lock:
+        assert pki._pkb_root_cache is sentinel, (
+            "build=False must not write _pkb_root_cache at all, even for "
+            "its own root")
+
+
+def test_cross_world_contamination_probe(tmp_path):
+    """QA attack-list item 8 / REVIEW4.md's own suggested reproduction:
+    in one process, build World A, schedule an upsert under A with no
+    explicit pkb_root (so it resolves via _pkb_root_cache), then run a
+    read-only check on World B, then flush. The row must land in A, not
+    B -- if ASK-1 were NOT fixed, the read-only check on B would have
+    redirected the flush target and this row would land under B instead
+    (or fail to resolve a real file at all, since _pending holds paths
+    relative to A)."""
+    import arail.pkb_index as pki
+
+    root_a = _make_root(tmp_path, "world_a")
+    root_b = _make_root(tmp_path, "world_b")
+
+    pki.ensure_ready(root_a, build=True)  # sets _pkb_root_cache to A
+
+    new_file = root_a / "notes" / "new_after_build.md"
+    new_file.write_text("# new\nafter the initial build\n")
+    pki.schedule_upsert(new_file, pkb_root=root_a)  # explicit root -- but exercises _pending
+
+    pki.ensure_ready(root_b, build=False)  # doctor-style read-only check on B, in between
+
+    pki.flush_now()  # resolves root via _pkb_root_cache internally
+
+    import lancedb  # type: ignore[import-not-found]
+    db_a = lancedb.connect(str(pki._vector_db_path(root_a)))
+    table_a = db_a.open_table("pkb_pages")
+    paths_a = set(table_a.to_pandas()["path"].tolist())
+    assert "notes/new_after_build.md" in paths_a, (
+        "the flush must land the new row under World A, not be lost or "
+        "misdirected by the intervening read-only check on World B")
+
+    # World B must remain completely untouched -- no table, no directory.
+    assert not pki._vector_db_path(root_b).exists(), (
+        "a read-only check on B followed by a flush targeting A must "
+        "never create or write anything under B")

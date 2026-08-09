@@ -640,7 +640,16 @@ def ensure_ready(pkb_root: Path | None = None, *, build: bool = True) -> None:
             if root_key in _initialized_roots:
                 return
             _initialized_roots.add(root_key)
-        _pkb_root_cache = root
+            # REVIEW4.md ASK-1: this assignment must stay inside the
+            # `if build:` guard. _pkb_root_cache is the single process-wide
+            # write target _flush()/schedule_upsert() resolve against
+            # (joined with _pending's root-RELATIVE paths) — a read-only
+            # call redirecting it would be worse than a no-op: it would
+            # make a later flush write World A's pending paths under World
+            # B's root. build=False never reads _pkb_root_cache either
+            # (it only ever uses its own local `root`), so it has no
+            # reason to write it.
+            _pkb_root_cache = root
 
     if not available():
         _log.warning("pkb_index: LanceDB not available; ensure_ready is a no-op")
