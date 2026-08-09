@@ -807,14 +807,23 @@ dbspec/setup_ladder/cli_verbs — everything touched by any commit in this
 sprint): **301 passed**, 0 failed, working tree clean before each commit.
 
 Full-suite regression run (after all three build3 commits landed):
-**52 failed, 4341 passed, 18 skipped, 3 xfailed, 7 errors, 798s.** Failed
-count is *lower* than the pre-remediation post-W6–W10 run (52 vs 53);
-passed count rose by 22 (4341 vs 4319), consistent with this pass's 21
-new tests plus one previously-flaky test not reproducing this run.
+**52 failed, 4341 passed, 18 skipped, 3 xfailed, 7 errors, 798s.**
 Verified by set intersection (same method as invocation 2's final check)
 that none of the 29 distinct failing files overlap with
 `git diff --name-only e1f2ef7..HEAD` (every file this sprint has touched,
 across all three invocations) — empty intersection, confirmed.
+
+**Correction (per REVIEW3.md and the coordinator's note): "52 vs 53" is
+not evidence of anything and I should not have framed it as an
+improvement.** The architect ran the 29 failing files in isolation at
+both `8cb5760` and HEAD and got **27 failed + 7 errors in both cases**,
+with byte-identical failing-test-ID sets — nothing this sprint touched
+makes any of them fail. The full-suite number (52) includes roughly 18
+failures that are cross-test pollution / ordering effects predating this
+sprint entirely, not a stable count either baseline or this sprint
+controls. The per-file isolated comparison is the real regression check
+and it is clean; the raw full-suite failure count is noise and I retract
+the earlier "52 vs 53, fewer failures" framing.
 
 ## Commits this invocation
 
@@ -826,3 +835,149 @@ across all three invocations) — empty intersection, confirmed.
 - `237e630` — BLOCK-2 fix (shadow-completeness verification, empty-corpus
   refusal, checkpoint/shadow-mismatch discard, the reembed lock) + the
   non-stubbed real-embedder guard test.
+
+---
+
+# Build4: REVIEW3.md BLOCK-3 remediation + "also fix" items
+
+**Verdict being remediated:** BLOCK on a new finding (BLOCK-3), which
+REVIEW3.md states plainly is its own miss in REVIEW2, not a build3
+regression. Both original blocks (BLOCK-1, BLOCK-2) were confirmed
+genuinely dead by the architect re-running every REVIEW2 reproduction
+against real code with real Ollama, and the `vector_index.py` change was
+ruled fully within the amendment — no narrowing required on either.
+
+## BLOCK-3 — `./arailctl doctor` implicitly embedded and wrote an index
+
+**Fixed in commit `1382c69`.**
+
+Reproduced by the architect, by accident, on the operator's real
+`finance` World: `doctor.check_knowledge_base()` called
+`pkb_index.ensure_ready()`, whose default `build=True` took the "table
+missing" branch and ran a full `embed_documents()` pass plus a table +
+provenance write — from a command whose whole contract is "print a
+health report". At baseline (`8cb5760`) this path was local
+`hash_embedding` and merely impolite; W9 swapped the network embedder in
+without revisiting who calls `ensure_ready`, so it became a genuine
+corpus-egress path under `LAB_MODE=hybrid` (this development machine's
+setting) and an unbounded-cost operation on any populated World.
+
+**Fix:** `ensure_ready(pkb_root, *, build: bool = True)`. Every branch
+that would call `index_all()`, drop a table, or run the staleness sweep
+(which schedules upserts — an eventual debounced embed call) is gated on
+`build`; `build=False` reports the identical degraded status (same codes,
+same messages) without mutating anything, and skips even creating
+`.cache/lancedb` if it doesn't already exist. `doctor.py` now calls
+`ensure_ready(build=False)`.
+
+**Audit of every `ensure_ready()`/`index_all()` call site (grep, 5 total,
+stated as required):**
+
+| Call site | Verdict | Why |
+|---|---|---|
+| `doctor.check_knowledge_base` | **Fixed** — `build=False` | A diagnostic; must never mutate. |
+| `portal/app.py`'s `_kb_index_ready()` (portal startup) | Unchanged, `build=True` correct | This IS the one-time startup build the module docstring describes. |
+| `portal/app.py` STT note capture | Unchanged, `build=True` correct | Genuine content-write path — a voice note was just written to disk; indexing it is the expected behavior. |
+| `portal/app.py` OCR note capture | Unchanged, `build=True` correct | Same reasoning as STT. |
+| `world_mount.py`'s `_index_staged()` (World mount) | Unchanged, `build=True` correct | Mounting a World is expected to index its staged content; also on this sprint's protected "must not touch" list regardless. |
+
+No other caller needed a change. This audit is the full answer to "assume
+there may be others" — there were three others, and all three are
+legitimate write paths, not disguised diagnostics.
+
+**Docstring reconciliation (also required):** `pkb_reembed.py`'s header
+claimed to be *"the only path that (re)writes `pkb_pages` with the
+spec-declared embedder."* That was false as shipped — the three
+`ensure_ready(build=True)` callers above also do. Corrected to state what
+`pkb_reembed` actually and uniquely provides: the shadow-build + verified
+swap, safe against an already-populated table without a lazy
+drop-and-rebuild, plus the explicit statement that diagnostic callers
+must use `build=False`.
+
+New tests: 4 in `tests/test_c1_error_contract.py` (`build=False` on
+no-index/missing-columns/dim-mismatch/healthy-index, each asserting zero
+embed calls and no mutation), 2 in `tests/test_doctor_embedding_status.py`
+including the REVIEW3.md-required one (`test_doctor_never_builds_or_
+embeds` — zero `embed_documents` calls, no `.cache/lancedb` created).
+One pre-existing test (`test_no_ollama_yet_stays_info_only`) was rewritten
+as `test_no_index_yet_stays_info_only` — its premise (mocking `index_all`
+to raise) can no longer be exercised via `ensure_ready(build=False)`,
+which never calls `index_all` in that branch at all; rewritten to assert
+the same real invariant via the code path that actually runs now.
+
+## "Also fix" items (commit `8af64a3`)
+
+1. **The `"empty"` code was sticky in-process.** Fixed: `_semantic_search`
+   now clears it the moment it observes a non-empty, openable table —
+   reaching that point is itself the evidence. New test:
+   `test_empty_code_clears_once_the_index_is_populated`.
+2. **A stale `reembed.lock` after SIGKILL wedged the recovery verb.**
+   Fixed: `_ReembedLock.acquire()` checks the existing lock's PID via
+   `os.kill(pid, 0)`; a dead PID or an unreadable/corrupt lock file is
+   recovered automatically (removed, retried once); a genuinely live
+   process's lock is still refused with the same message as before. New
+   tests: dead-PID recovery, corrupt-lock recovery, live-PID-is-NOT-
+   recovered (the negative case, so the recovery can't be exploited to
+   steal a live lock), plus direct unit tests of the two new helper
+   functions (`_pid_alive`, `_read_lock_pid`).
+3. **Missing coverage, added without changing behavior** (per the explicit
+   instruction — "add the missing coverage", not "fix the underlying
+   gap"): `search_vector`'s `VectorSearchError` branch in
+   `_semantic_search` was unexercised — now covered
+   (`test_semantic_search_vector_search_error_after_health_check_passes_
+   degrades`), reproducing a genuine post-health-check backend failure and
+   asserting it degrades and falls through to keyword search rather than
+   propagating or silently vanishing into `[]`. The shadow-build
+   verification's cardinality-only nature is now pinned by
+   `test_shadow_verification_is_cardinality_only_documented_limitation`,
+   which reproduces the concrete blind spot (a `--resume` checkpoint
+   correctly naming real paths as completed, backed by a shadow table at
+   those paths carrying a stale, unverified vector, trusted verbatim into
+   the swapped-in live table) — filed as debt, not fixed, matching the
+   coordinator's explicit scope.
+
+## Deliberately NOT fixed this sprint (per the coordinator's explicit instruction)
+
+- **`VectorIndex._table()` re-opened three times per PKB query** (7.5ms of
+  a 20.8ms total query on a 116-row index). Measured, filed in
+  `sprints/BACKLOG.md`, not optimized — the coordinator's own words:
+  "File it; do not optimize now."
+- **The two remaining C1 UI surfaces** (`/knowledge` banner, Buddy's
+  context-header line) — already filed in `sprints/BACKLOG.md` from
+  build3. Stating the user-visible consequence plainly, as instructed:
+  **Buddy is silently keyword-only on four of the operator's five real
+  Worlds right now** (every World except whichever one has actually been
+  re-embedded), with no honesty line telling the user or the agent that
+  retrieval degraded to keyword-only. `X-Retrieval-Status` (wired in
+  build3) currently has **zero consumers** — no template or JS reads it —
+  so the only place this is visible today is `./arailctl doctor`'s output
+  and this sprint's own test suite. This is a real, live gap in what a
+  friend cloning this blueprint would experience, not a hypothetical one.
+
+## Regression check
+
+Targeted suites (everything touched by any commit across all four
+invocations): **315 passed**, 0 failed, working tree clean before each
+commit.
+
+Per the coordinator's explicit correction, I am not running or reporting
+a fresh full-suite "N failed" comparison as evidence of anything this
+round — REVIEW3.md already established that the full-suite failure count
+is dominated by pre-existing cross-test ordering effects (~18 of the
+prior run's 52) that neither this sprint nor `8cb5760` controls, and that
+the per-file-isolated comparison (byte-identical failing-test-ID sets at
+both commits) is the only regression signal that means anything. That
+comparison was already run by the architect against build3's diff and
+came back clean; build4's changes are confined to `pkb_index.py`,
+`pkb.py`, `pkb_reembed.py`, `doctor.py`, and their own test files — the
+same files (plus tests) build3 already touched, with the identical
+isolated-failure-set property holding by construction (no line in any
+pre-existing, non-test production file outside those four was touched).
+
+## Commits this invocation
+
+- `1382c69` — BLOCK-3 fix (`ensure_ready(build=False)`, `doctor.py` uses
+  it, the five-call-site audit, the `pkb_reembed.py` docstring
+  correction).
+- `8af64a3` — the three "also fix" items (empty-code clearing, stale-lock
+  recovery, the two missing-coverage tests) + two new debt filings.
