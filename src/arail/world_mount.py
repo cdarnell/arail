@@ -1692,6 +1692,19 @@ def swap(
     )
     _write_record(record, dd)
 
+    # Step 4.5: narrowly-scoped auto-approval of the incoming World's term
+    # pages, same as mount()'s step 3.5 (QA-6 review, BLOCK-1) — swap() is
+    # the path the operator actually takes on every World switch, so it
+    # needs the same reconciliation against the just-verified bundle's
+    # terms.json. Best-effort — an exception here must never fail the swap.
+    try:
+        from arail.compiled_kb import auto_approve_world_terms
+        auto_approve_world_terms(
+            bundle.slug, bundle_terms=bundle.terms,
+            seal_sha=seal.computed_sha256, pkb_root=pkb)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: auto-approval skipped (continuing): %s", e)
+
     # The lab now reflects a different World — same rule mount() follows.
     _switch_goal_for_world(bundle.slug, dd)
 
