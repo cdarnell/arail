@@ -41,7 +41,7 @@ Chain: `compiled_kb.py:452` (gate defaults on) → `compiled_kb.py:117`
 | build (round 2) | builder | BUILD_LOG.md | done | 2026-08-09T16:02:10Z | 2026-08-09T16:10:40Z | 3 BLOCKs + ASK-1 fixed, 100 tests pass |
 | review (round 2) | architect (review) | REVIEW.md | done | 2026-08-09T16:10:40Z | 2026-08-09T16:16:05Z | **PASS** (ade527c) |
 | test | qa | TEST_REPORT.md | done | 2026-08-09T16:16:05Z | 2026-08-09T16:38:20Z | **WEAK_PASS** (d03eeff) — 142 tests added |
-| ship | — | PR | awaiting operator | — | — | — |
+| ship | — | PR | done | — | 2026-08-09T16:52:00Z | PR #176 open to main |
 
 ## Decisions log
 
