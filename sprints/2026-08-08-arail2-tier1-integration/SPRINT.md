@@ -40,7 +40,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | review4 | architect (review) | REVIEW4.md | done | 2026-08-08T22:56Z | 2026-08-08T23:20Z | **WEAK_PASS** |
 | build6 | builder | BUILD_LOG.md | done (ASK-1, ASK-2, invariant docs) | 2026-08-08T23:22Z | 2026-08-08T23:45Z | 154 targeted tests |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
-| test | qa | TEST_REPORT.md | in_progress | 2026-08-08T23:47Z | — | — |
+| test | qa | TEST_REPORT.md | done | 2026-08-08T23:47Z | 2026-09-09T00:18Z | **FAIL** (QA-5) |
+| build7 | builder | BUILD_LOG.md | in_progress (QA-5) | 2026-09-09T00:20Z | — | — |
 | ship | — | PR | pending | — | — | — |
 
 ## Decisions log
@@ -340,6 +341,66 @@ are in the family that has already produced three defects, and QA's attack list
 covers the same ground (stale-lock behaviour, cross-World contamination probe),
 so fixing first avoids a re-loop. No fifth full review: the fixes are surgical
 and QA verifies them.
+
+## QA verdict — FAIL
+
+72 tests committed, weighted 30% setup / 30% Buddy / 20% security / 10% happy /
+10% regression.
+
+### QA-5 (HIGH, blocks ship) — `/api/pkb/search` 500s on every degraded World
+`api_pkb_search` stamps `X-Retrieval-Reason: reason[:200]`. Starlette encodes
+header values as **latin-1**, and every degraded message `pkb_index` emits
+contains an **em dash**:
+`UnicodeEncodeError: 'latin-1' codec can't encode character '\u2014'`.
+Reproduced end to end against a scratch copy of the real `qukaizen` World. Hits
+four of five Worlds plus the root lab (legacy 128-dim -> `dimension`), any
+unbuilt index (`empty`), and every clean machine that has not pulled the model
+(`provider`). It backs the KB search box in `dashboard.html`, `agents.html`,
+`docs_hub.html`. At `8cb5760` the endpoint was `return pkb_search(q.strip())`
+and could not 500 — **this sprint introduces it**. The mechanism added to make
+degradation honest is what breaks the surface. The sprint's own test missed it
+because the fixture reason is a hand-written ASCII string rather than one the
+product actually emits. Fix is ASCII-folding at one call site, which also
+closes QA-4 (CR/LF/NUL from a hostile provider body).
+
+### QA-6 (MEDIUM, pre-existing, NOT a regression) — Buddy has zero retrieval
+`approved_paths()` is **empty on all six real PKB roots** and the Compiled-KB
+gate ships on, so `pkb.search(approved_only=True)` returns `[]` *before*
+`_semantic_search` runs. Buddy gets 0 hits on a legacy World **and** on a
+re-embedded one — and `retrieval_status()` returns `(True, "")`, so no degraded
+code is ever set on that path. This matches Phase 1 audit finding **A36**
+(`compiled_kb.py:109` fails closed to `set()` with the gate default on) and the
+historical 554/556-corpse-approvals bug recorded in `world_mount.py:1316`.
+
+**Consequence for this sprint:** the deferred Buddy context header, built
+exactly as C1 specifies, would print a **false "retrieval healthy."** QA's read,
+which the orchestrator accepts: the deferral does not block ship, but *building
+that surface as designed* must not happen until the agent path consults the
+health check. Corrects the orchestrator's repeated claim that Buddy is
+"keyword-only on four of five Worlds" — it is worse than that, and it is
+pre-existing rather than caused here.
+
+### The upgrade is real and measured end to end
+Same World, before/after a real reembed, through `lab_brain.retrieve_chat_context`:
+relevant top-1 went **0/6 -> 6/6** (`.wiki-cache/manifest.json` ->
+`terms/upscaling.md`, `terms/gpu-driver.md`, `terms/force-feedback.md`), latency
+unchanged (349 ms -> 332 ms). The +40.6pp is not overstated — it simply cannot
+reach the operator until QA-5 and QA-6 are resolved.
+
+### Real-lab boundary honoured
+A 17,015-entry `stat` inventory of `lab/` before and after the pass: **`diff` is
+empty**. Six `doctor` runs against the real roots gave **3/3/3/3/0** plus root 3,
+with zero writes and zero embeds beyond the 5-byte probe.
+
+### What QA could not break
+Reverting ASK-1 fails 3 tests; removing `flock` fails 5. Two OS processes under
+six CPU spinners, five trials: exactly one winner every time. SIGKILL at 24/40
+rows left the live table byte-identical with `--resume` completing. The egress
+allowlist refused all 10 adversarial host forms, both `OLLAMA_HOST` shapes,
+every non-`hybrid` `LAB_MODE`, and 301/302/307 redirects. `_table()` measured
+**0.39–1.21 ms**, not 7.5 — the deferral is justified and REVIEW3's latency
+concern was overstated. Reembed incidentally collapses `ai`'s 2,421 fragments
+to 1.
 
 ## Skipped phases
 
