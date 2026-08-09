@@ -16,6 +16,7 @@ rather than splitting the response, and that the value stays bounded.
 from __future__ import annotations
 
 import asyncio
+import importlib
 
 import pytest
 
@@ -24,6 +25,14 @@ from arail.portal import app as portal_app
 
 def _run(coro):
     return asyncio.run(coro)
+
+
+@pytest.fixture
+def _qa_pkb_reset():
+    import arail.pkb_index as pki
+    pki._reset_for_tests()
+    yield
+    pki._reset_for_tests()
 
 
 HOSTILE_REASONS = [
@@ -49,11 +58,9 @@ def test_a_hostile_provider_message_cannot_split_the_response(
     search into a serialization error (a self-inflicted 500 on
     ``/api/pkb/search``, remotely triggerable in ``LAB_MODE=hybrid`` where
     the provider is off-box). Sanitising at the point of construction is
-    the fix — see TEST_REPORT.md QA-4.
+    the fix — see TEST_REPORT.md QA-4, fixed alongside QA-5 via
+    ``app._header_safe``.
     """
-    if label in {"crlf", "lf", "cr", "nul"}:
-        pytest.xfail("QA-4: the reason string is not sanitised before it "
-                     "becomes a header value")
     monkeypatch.setattr(portal_app, "pkb_search", lambda q: [])
     monkeypatch.setattr("arail.pkb.retrieval_status", lambda: (False, reason))
 
@@ -68,25 +75,83 @@ def test_a_hostile_provider_message_cannot_split_the_response(
     assert "Set-Cookie" not in dict(result.headers)
 
 
-REAL_DEGRADED_REASONS = [
-    ("dimension",
-     "pkb_pages index was built with a different embedding dimension than "
-     "the current spec declares — run `./arailctl pkb reembed` to upgrade. "
-     "Existing rows are untouched."),
-    ("provenance-missing",
-     "pkb_pages index has no provenance record — treated as a legacy index. "
-     "Run `./arailctl pkb reembed` to upgrade."),
-    ("empty",
-     "pkb_pages index does not exist yet for this World — run "
-     "`./arailctl pkb reembed` (or start the portal) to build it."),
-    ("empty-search",
-     "KB index is empty for this world — run `./arailctl pkb reembed`"),
+def _world(tmp_path, monkeypatch):
+    """A scratch PKB root, same shape as test_qa_tier1_buddy_retrieval's."""
+    monkeypatch.setenv("LAB_PKB", str(tmp_path))
+    import arail.config
+    import arail.pkb as pkb
+    importlib.reload(arail.config)
+    importlib.reload(pkb)
+    notes = tmp_path / "notes"
+    notes.mkdir(parents=True, exist_ok=True)
+    (notes / "a.md").write_text("# a\nsome content\n")
+    return tmp_path
+
+
+def _trigger_dimension(root):
+    """Legacy 128-dim table, no sidecar -- byte-for-byte the state of four
+    of the operator's five real Worlds. ``pkb.search`` (ungated) hits the
+    real ``check_read_path_health`` dimension check."""
+    import lancedb  # type: ignore[import-not-found]
+    from arail.vector_index import hash_embedding
+    import arail.pkb as pkb
+
+    db_path = root / ".cache" / "lancedb"
+    db_path.mkdir(parents=True, exist_ok=True)
+    db = lancedb.connect(str(db_path))
+    db.create_table("pkb_pages", data=[
+        {"path": "notes/a.md", "name": "a.md",
+         "vector": hash_embedding("a"), "mtime": 0.0, "source_kind": "user"},
+    ], mode="overwrite")
+    pkb.search("anything", root)
+
+
+def _trigger_provenance_missing(root):
+    """Correct dimension, no provenance sidecar -- ``pkb.search`` hits the
+    real ``_check_provenance`` "no provenance record" branch."""
+    import lancedb  # type: ignore[import-not-found]
+    from arail.dbspec.generated.models_registry import EMBEDDING_DIM
+    import arail.pkb as pkb
+
+    db_path = root / ".cache" / "lancedb"
+    db_path.mkdir(parents=True, exist_ok=True)
+    db = lancedb.connect(str(db_path))
+    db.create_table("pkb_pages", data=[
+        {"path": "notes/a.md", "name": "a.md",
+         "vector": [0.0] * EMBEDDING_DIM, "mtime": 0.0, "source_kind": "user"},
+    ], mode="overwrite")
+    pkb.search("anything", root)
+
+
+def _trigger_empty_build_path(root):
+    """No index at all -- ``ensure_ready(build=False)`` hits the real
+    "index does not exist yet for this World" branch (the diagnostic /
+    doctor path, distinct from the search-path empty message below)."""
+    import arail.pkb_index as pki
+    pki.ensure_ready(root, build=False)
+
+
+def _trigger_empty_search_path(root):
+    """No index at all -- ``pkb.search`` hits its own "KB index is empty
+    for this world" branch (the search path, distinct from the
+    ensure_ready/doctor message above)."""
+    import arail.pkb as pkb
+    pkb.search("anything", root)
+
+
+REAL_DEGRADED_TRIGGERS = [
+    ("dimension", _trigger_dimension),
+    ("provenance-missing", _trigger_provenance_missing),
+    ("empty-build-path", _trigger_empty_build_path),
+    ("empty-search-path", _trigger_empty_search_path),
 ]
 
 
-@pytest.mark.parametrize("label,reason", REAL_DEGRADED_REASONS,
-                         ids=[lbl for lbl, _ in REAL_DEGRADED_REASONS])
-def test_the_real_degraded_messages_can_actually_be_served(monkeypatch, label, reason):
+@pytest.mark.usefixtures("_qa_pkb_reset")
+@pytest.mark.parametrize("label,trigger", REAL_DEGRADED_TRIGGERS,
+                         ids=[lbl for lbl, _ in REAL_DEGRADED_TRIGGERS])
+def test_the_real_degraded_messages_can_actually_be_served(
+        monkeypatch, tmp_path, label, trigger):
     """QA-5 — the shipping defect.
 
     Every degraded reason ``pkb_index`` produces contains an EM DASH
@@ -100,11 +165,28 @@ def test_the_real_degraded_messages_can_actually_be_served(monkeypatch, label, r
     has not yet pulled ``nomic-embed-text``. Reproduced end to end against
     a scratch copy of the ``qukaizen`` World.
 
-    ``tests/test_pkb_search_api_status.py`` misses it because its fixture
-    reason is a hand-written ASCII string rather than one the product
-    actually emits — which is why this test parametrises over the real
-    message text.
+    ``tests/test_pkb_search_api_status.py`` missed it because its fixture
+    reason was a hand-written ASCII string rather than one the product
+    actually emits. Fixed here per REVIEW4/QA feedback: each parameter
+    below *triggers the real code path* (a real legacy table, a real
+    missing sidecar, a real empty index via each of the two distinct
+    call sites that report it) and reads the reason back through
+    ``retrieval_status()`` -- it is never hand-copied, so this test
+    cannot drift out of sync with what ``pkb_index``/``pkb`` actually say,
+    and a new degraded message some future change adds is caught the
+    moment it's wired into ``retrieval_status()``.
     """
+    import arail.pkb as pkb
+
+    root = _world(tmp_path, monkeypatch)
+    trigger(root)
+
+    ok, reason = pkb.retrieval_status()
+    assert ok is False, f"trigger {label!r} did not actually degrade retrieval_status()"
+    assert "—" in reason, (
+        f"trigger {label!r}'s real reason no longer contains an em dash -- "
+        f"this test's whole point is exercising that hazard; got {reason!r}")
+
     monkeypatch.setattr(portal_app, "pkb_search",
                         lambda q: [{"path": "a.md", "source": "keyword"}])
     monkeypatch.setattr("arail.pkb.retrieval_status", lambda: (False, reason))

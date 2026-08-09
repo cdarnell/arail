@@ -11245,9 +11245,37 @@ async def api_pkb_search(q: str = ""):
         content=results,
         headers={
             "X-Retrieval-Status": "degraded",
-            "X-Retrieval-Reason": reason[:200],
+            "X-Retrieval-Reason": _header_safe(reason)[:200],
         },
     )
+
+
+def _header_safe(value: str) -> str:
+    """Make an arbitrary string safe as an HTTP response header value
+    (QA-4/QA-5, TEST_REPORT.md, 2026-08-08-arail2-tier1-integration).
+
+    Two independent hazards share this one call site because ``reason``
+    in ``api_pkb_search`` is never fully trusted: most of it comes from
+    ``pkb_index``'s own degraded-state prose, which is ASCII except for an
+    em dash (U+2014) every message contains — Starlette encodes response
+    headers as latin-1, so that alone 500s the endpoint on four of five
+    real Worlds plus the root lab, and on any clean machine that hasn't
+    pulled the embedding model yet (QA-5). But `EmbeddingError` messages
+    also splice in up to 400 bytes of a provider's raw HTTP error body
+    (``embed._post``), and in ``LAB_MODE=hybrid`` that provider can be
+    off-box — so the same string is also untrusted input on a
+    response-header-injection surface (QA-4: CR/LF/NUL reaching a header).
+
+    Strip control characters (CR/LF/NUL — the response-splitting vector)
+    first, then ASCII-fold anything outside latin-1's *safe* printable
+    range (encode as ASCII with a `?` replacement) so no character can
+    ever reach Starlette's latin-1 header encoder and raise
+    ``UnicodeEncodeError``. Order matters: folding before stripping could
+    turn a folded replacement character into new control bytes on some
+    encodings, so control-strip runs first, always.
+    """
+    stripped = "".join(ch for ch in value if ch not in ("\r", "\n", "\x00"))
+    return stripped.encode("ascii", "replace").decode("ascii")
 
 
 @app.post("/api/pkb/ingest")
