@@ -609,12 +609,22 @@ def auto_approve_world_terms(
     bundle_terms: Iterable[dict[str, Any]],
     seal_sha: str,
     pkb_root: Path | None = None,
+    verified_seal: bool = True,
 ) -> list[dict[str, Any]]:
     """Auto-approve exactly the staged term pages for ``world_slug`` whose
     slug is present in ``bundle_terms`` — the reconciliation half of the
     scope invariant. ``bundle_terms`` MUST come from a bundle whose seal has
     already verified; this function does not verify seals and must never be
     called with unverified terms.
+
+    ``verified_seal`` controls only the provenance label stamped into
+    ``approved_by`` — it does not change what gets approved. Callers that
+    pass a real ``seal.computed_sha256`` from ``verify_seal`` (``mount()``,
+    ``swap()``) leave this ``True`` and get ``world-seal:<sha12>``.
+    ``bootstrap()`` reads ``terms.json`` from the catalog directly, without
+    calling ``verify_seal`` — it MUST pass ``verified_seal=False`` so the
+    stamp reads ``world-terms:<sha12>`` and does not assert a verification
+    that never happened (REVIEW.md BLOCK-3).
 
     Scope: a path is admitted iff (1) it matches
     ``sources/world-<slug>/terms/<term-slug>.md``, (2) ``<term-slug>`` is in
@@ -667,7 +677,8 @@ def auto_approve_world_terms(
         if not candidates:
             return []
 
-        approver = f"world-seal:{str(seal_sha)[:12]}"
+        label = "world-seal" if verified_seal else "world-terms"
+        approver = f"{label}:{str(seal_sha)[:12]}"
         return approve(candidates, root, approver=approver, extra={"auto": True})
     except Exception:  # noqa: BLE001 — best-effort; must never fail a mount
         return []
@@ -726,6 +737,11 @@ def bootstrap(pkb_root: Path | None = None, *, dry_run: bool = False) -> dict[st
                                 f"sources/world-{world_slug}/terms/{slug}.md")
                     result["approved"] = len(candidate_paths)
                     return result
+                # NOT a verified seal: resolve_world_bundle() is a bare
+                # json.loads of terms.json/spec.json with no verify_seal
+                # call, and this sha covers only terms.json, not the whole
+                # bundle. Stamped honestly via verified_seal=False below
+                # (REVIEW.md BLOCK-3) — "world-terms:", not "world-seal:".
                 try:
                     from arail.config import WORLDS_DIR
                     terms_raw = (Path(WORLDS_DIR) / world_slug / "terms.json").read_bytes()
@@ -734,7 +750,7 @@ def bootstrap(pkb_root: Path | None = None, *, dry_run: bool = False) -> dict[st
                     seal_sha = _sha256(json.dumps(terms, sort_keys=True))
                 added = auto_approve_world_terms(
                     world_slug, bundle_terms=terms, seal_sha=seal_sha,
-                    pkb_root=root)
+                    pkb_root=root, verified_seal=False)
                 result["approved"] = len(added)
                 return result
 

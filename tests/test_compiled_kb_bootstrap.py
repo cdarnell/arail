@@ -271,6 +271,12 @@ def test_bootstrap_real_bundle_approves_all_terms(pkb, catalog, monkeypatch):
         "sources/world-math/terms/algebra.md",
         "sources/world-math/terms/geometry.md",
     }
+    # BLOCK-3: bootstrap() never calls verify_seal (resolve_world_bundle is a
+    # bare json.loads), so the stamp must be honest about that — "world-terms:"
+    # not "world-seal:", which is reserved for the real mount()/swap() path.
+    records = ckb.list_approved(pkb)
+    assert all(r["approved_by"].startswith("world-terms:") for r in records)
+    assert not any(r["approved_by"].startswith("world-seal:") for r in records)
 
 
 def test_bootstrap_never_raises_on_root_missing(tmp_path):
