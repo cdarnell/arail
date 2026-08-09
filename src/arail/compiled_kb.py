@@ -541,14 +541,19 @@ def reject(paths: Iterable[str], pkb_root: Path | None = None) -> int:
     return n
 
 
-def revoke(paths: Iterable[str], pkb_root: Path | None = None) -> int:
+def revoke(paths: Iterable[str], pkb_root: Path | None = None, *,
+           sticky: bool = True) -> int:
     """Remove items from the Compiled KB (un-approve). The raw file remains;
     agents simply stop building on it. Fully reversible.
 
-    Also records each path in the sticky ``unapproved.json`` set so a later
-    World mount does not silently re-approve it via
-    ``auto_approve_world_terms`` — without this, revoking a World term would
-    be undone by the next mount."""
+    ``sticky`` (default ``True``, the human-revocation path) also records
+    each path in the ``unapproved.json`` set so a later World mount does not
+    silently re-approve it via ``auto_approve_world_terms`` — without this, a
+    human's per-term revocation would be undone by the next mount.
+    ``sticky=False`` is for a mechanism-level rollback (see
+    ``revoke_auto``), not a human judgment about a specific term: it
+    un-approves now without poisoning future auto-approval, so the next
+    mount/swap/bootstrap is free to re-approve the same term."""
     root = pkb_root or _pkb_root()
     current = _approved_map(root)
     unapproved = _unapproved_set(root)
@@ -558,10 +563,11 @@ def revoke(paths: Iterable[str], pkb_root: Path | None = None) -> int:
         if rel in current:
             del current[rel]
             n += 1
-        unapproved.add(rel)
+        if sticky:
+            unapproved.add(rel)
     _save_json(_kb_dir(root) / _APPROVED_FILE,
                {"schema": SCHEMA, "updated_at": _now(), "items": current})
-    if n:
+    if n and sticky:
         _save_unapproved(root, unapproved)
     return n
 
@@ -569,11 +575,21 @@ def revoke(paths: Iterable[str], pkb_root: Path | None = None) -> int:
 def revoke_auto(pkb_root: Path | None = None) -> int:
     """Revoke every approval carrying ``auto: True`` — the one-step rollback
     for the whole mount-time auto-approval mechanism. Raw files untouched;
-    fully reversible."""
+    fully reversible.
+
+    Deliberately non-sticky (REVIEW.md ASK-1): this is a mechanism-level
+    rollback, not 351 individual human judgments, so it must not mark every
+    auto-approved path as explicitly revoked. A sticky rollback would be a
+    one-way door — the *next* mount/swap/bootstrap would see every one of
+    those paths in ``unapproved.json`` and refuse to re-approve any of them,
+    with no un-stick command anywhere in the product. Non-sticky means the
+    mechanism can be flipped back on (re-mount, re-swap, or re-run
+    ``./arailctl pkb bootstrap``) and the World's terms return exactly as
+    they were — the same reversibility every other revoke() call promises."""
     root = pkb_root or _pkb_root()
     current = _approved_map(root)
     auto_paths = [rel for rel, rec in current.items() if rec.get("auto") is True]
-    return revoke(auto_paths, root)
+    return revoke(auto_paths, root, sticky=False)
 
 
 # ── World-term auto-approval (mount-time, narrowly scoped) ───────────────

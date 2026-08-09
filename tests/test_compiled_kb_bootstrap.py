@@ -219,6 +219,42 @@ def test_revoke_auto_removes_only_auto_approved(pkb, monkeypatch):
     assert remaining == {"notes/personal.md"}
 
 
+def test_revoke_auto_is_not_sticky(pkb, monkeypatch):
+    """ASK-1: revoke_auto() is a mechanism-level rollback, not 351 human
+    revocations — it must not poison unapproved.json, or the next mount/
+    swap/bootstrap would refuse to re-approve any of those paths with no
+    un-stick command anywhere in the product."""
+    monkeypatch.delenv("ARAIL_AUTO_APPROVE_WORLD_TERMS", raising=False)
+    ckb.auto_approve_world_terms(
+        "math", bundle_terms=_BUNDLE_TERMS, seal_sha="x" * 12, pkb_root=pkb)
+    ckb.revoke_auto(pkb)
+    assert ckb.approved_paths(pkb) == set()
+    assert ckb.unapproved_paths(pkb) == set()
+
+    # The mechanism rollback is reversible: the next auto-approval run
+    # (mount/swap/bootstrap) re-approves the same terms exactly as before.
+    added = ckb.auto_approve_world_terms(
+        "math", bundle_terms=_BUNDLE_TERMS, seal_sha="x" * 12, pkb_root=pkb)
+    assert {r["path"] for r in added} == {
+        "sources/world-math/terms/algebra.md",
+        "sources/world-math/terms/geometry.md",
+    }
+
+
+def test_explicit_revoke_stays_sticky_after_revoke_auto(pkb, monkeypatch):
+    """revoke_auto()'s non-stickiness must not leak into revoke()'s own
+    default — a human's explicit per-term revocation is unaffected."""
+    monkeypatch.delenv("ARAIL_AUTO_APPROVE_WORLD_TERMS", raising=False)
+    ckb.auto_approve_world_terms(
+        "math", bundle_terms=_BUNDLE_TERMS, seal_sha="x" * 12, pkb_root=pkb)
+    ckb.revoke(["sources/world-math/terms/algebra.md"], pkb)
+    assert ckb.unapproved_paths(pkb) == {"sources/world-math/terms/algebra.md"}
+
+    added = ckb.auto_approve_world_terms(
+        "math", bundle_terms=_BUNDLE_TERMS, seal_sha="x" * 12, pkb_root=pkb)
+    assert {r["path"] for r in added} == {"sources/world-math/terms/geometry.md"}
+
+
 # ── bootstrap() ────────────────────────────────────────────────────────
 
 @pytest.fixture()
