@@ -35,7 +35,8 @@ data. Nothing in `pkb.py`, `vector_index.py`, `world_mount.py`, or
 | review2 | architect (review) | REVIEW2.md | done | 2026-08-08T21:02Z | 2026-08-08T21:14Z | **BLOCK** |
 | build3 | builder | BUILD_LOG.md | done (BLOCK remediation) | 2026-08-08T21:16Z | 2026-08-08T21:52Z | 21 tests; suite 52F/4341P |
 | review3 | architect (review) | REVIEW3.md | done | 2026-08-08T21:54Z | 2026-08-08T22:26Z | **BLOCK** (new: BLOCK-3) |
-| build4 | builder | BUILD_LOG.md | in_progress (BLOCK-3) | 2026-08-08T22:28Z | — | — |
+| build4 | builder | BUILD_LOG.md | done (BLOCK-3) | 2026-08-08T22:28Z | 2026-08-08T22:43Z | fixed; regression found by orchestrator |
+| build5 | builder | BUILD_LOG.md | in_progress (ORCH-1 regression) | 2026-08-08T22:46Z | — | — |
 | review | architect (review) | REVIEW.md | done | 2026-08-08T19:48Z | 2026-08-08T19:56Z | **PASS** |
 | test | qa | TEST_REPORT.md | pending | — | — | — |
 | ship | — | PR | pending | — | — | — |
@@ -247,6 +248,34 @@ vs 34 in isolation — ~18 failures are pre-existing order-dependence, so the
    consumers.
 6. `search_vector`'s `VectorSearchError` branch is unexercised; shadow
    verification is cardinality-only.
+
+## ORCH-1 — regression introduced by the BLOCK-3 fix (found by the orchestrator)
+
+Caught during orchestrator verification of the BLOCK-3 fix, *before* re-review.
+Verifying rather than trusting the build report is what surfaced it.
+
+`ensure_ready` short-circuits on a module-global `if _initialized: return`. The
+new `build=False` path sets that flag exactly as `build=True` does — while
+deliberately doing no work. So the first read-only check permanently disables
+index building for the rest of the process.
+
+Reproduced in one process on a temp root: `ensure_ready(root, build=False)`
+then `ensure_ready(root, build=True)` leaves **no index**; `build=True` alone
+in a fresh process builds correctly.
+
+`_initialized` is per-process, so `doctor` (separate process) is unaffected.
+The hazard is inside the **portal** process: `pkb._semantic_search` now runs
+the health check on every query, so after any search a later genuine
+content-write path (World mount, voice/OCR note capture) would silently fail
+to index its new content — and then tell the user to run `pkb reembed` to fix
+something that should have just worked.
+
+Invariant handed to the builder: `ensure_ready(root, build=False)` followed by
+`ensure_ready(root, build=True)` in one process must build the index and reach
+the same end state as `build=True` alone. Noted that `_initialized` is a
+sibling of the already-filed module-global degraded-state debt (process-wide
+flags vs per-World roots); closing both together is acceptable, widening beyond
+`pkb_index.py` state handling is not.
 
 ## Skipped phases
 
