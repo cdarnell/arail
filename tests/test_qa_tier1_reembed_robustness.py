@@ -6,10 +6,12 @@ is the one the sprint set for itself: an interrupted, contended, or
 denied re-embed must never leave a half-swapped, truncated or empty index,
 and must never wedge the recovery verb.
 
-Three tests are ``xfail(strict=True)`` defect reproducers. They assert the
-behaviour we want; they fail today; when the builder fixes them they XPASS
-and pytest turns that into a failure, which forces the marker off. See
-TEST_REPORT.md findings QA-1..QA-3.
+QA-1/QA-2/QA-3 (TEST_REPORT.md) were originally filed as ``xfail(strict=
+True)`` defect reproducers -- they asserted the behaviour wanted, failed
+on first write, and were designed to XPASS-fail the moment they were
+fixed without the marker being removed. All three are now fixed (the
+final build pass) and the markers dropped; they run as ordinary
+regression tests below.
 """
 from __future__ import annotations
 
@@ -304,25 +306,28 @@ def test_readonly_ensure_ready_on_a_world_with_no_index_creates_no_directory(tmp
 # Defect reproducers — see TEST_REPORT.md QA-1..QA-3
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(strict=True, reason="QA-1: backup name is second-resolution; "
-                                       "a collision raises a bare OSError that "
-                                       "main()'s handlers do not catch")
 def test_two_reembeds_completing_in_the_same_second_do_not_crash(tmp_path):
+    """QA-1, fixed: the backup name used to be second-resolution only, so
+    two reembeds completing in the same wall-clock second collided and the
+    second's bare OSError(ENOTEMPTY) escaped every handler in main(). The
+    backup-naming loop now picks a name nothing is using."""
     root = _corpus(tmp_path, n=2)
     R.run(root, include_docs=False)
-    # Occupy the backup name this second's run will choose.
+    # Occupy the backup name this second's run would otherwise choose.
     bak = (root / ".cache" / "lancedb"
            / f"pkb_pages.lance.bak-{int(time.time())}")
     bak.mkdir(parents=True, exist_ok=True)
     (bak / "occupied").write_text("x")
-    R.run(root, include_docs=False)   # OSError(ENOTEMPTY) today
+    R.run(root, include_docs=False)   # must not raise
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores mode bits")
-@pytest.mark.xfail(strict=True, reason="QA-2: a read-only/full .cache raises "
-                                       "PermissionError, which main() does not "
-                                       "map to an actionable exit code")
 def test_reembed_on_an_unwritable_cache_reports_actionably(tmp_path):
+    """QA-2, fixed: a read-only/full .cache used to raise a bare
+    PermissionError past every RuntimeError handler in main(). run() now
+    wraps any OSError from the write phase in ReembedIOError (a
+    RuntimeError subclass), so main() reports it the same actionable way
+    (English message, exit 1) as every other failure mode here."""
     root = _corpus(tmp_path)
     R.run(root, include_docs=False)
     cache = root / ".cache"
@@ -334,10 +339,11 @@ def test_reembed_on_an_unwritable_cache_reports_actionably(tmp_path):
         os.chmod(cache, 0o700)
 
 
-@pytest.mark.xfail(strict=True, reason="QA-3: an empty corpus with no live table "
-                                       "writes a provenance sidecar describing a "
-                                       "table that does not exist")
 def test_empty_corpus_does_not_leave_a_sidecar_without_a_table(tmp_path):
+    """QA-3, fixed: an empty corpus with no pre-existing live table never
+    creates a table to swap in, but the provenance sidecar used to be
+    written unconditionally anyway. Now gated on a live table actually
+    existing after the swap attempt."""
     root = tmp_path / "empty"
     root.mkdir()
     R.run(root, include_docs=False)

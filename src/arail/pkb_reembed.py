@@ -140,6 +140,15 @@ class ReembedLocked(RuntimeError):
     own transaction conflict resolver and surfaced a raw Rust error)."""
 
 
+class ReembedIOError(RuntimeError):
+    """A filesystem operation in the write phase failed for a mundane
+    reason -- permissions, a full disk, a read-only mount -- rather than a
+    data-integrity concern (QA-2, TEST_REPORT.md round 1). Wrapped so
+    ``main()`` reports it the same actionable way as every other
+    ``RuntimeError`` here (an English message and a non-zero exit code),
+    instead of a raw ``PermissionError``/``OSError`` traceback."""
+
+
 # --------------------------------------------------------------------------
 # lock — one concurrent `pkb reembed` per root
 # --------------------------------------------------------------------------
@@ -272,14 +281,26 @@ def run(pkb_root: Path, *, resume: bool = False, dry_run: bool = False,
         }
 
     with _ReembedLock(pkb_root):
-        return _run_locked(
-            pkb_root, resume=resume, batch_size=batch_size,
-            pending_rows=pending_rows, total=total, model=model,
-            spec_sha=spec_sha, progress=progress,
-            lancedb=lancedb, pkb_mod=pkb_mod, pkb_provenance=pkb_provenance,
-            VectorIndex=VectorIndex, embed_mod=embed_mod,
-            EMBEDDING_DIM=EMBEDDING_DIM,
-        )
+        try:
+            return _run_locked(
+                pkb_root, resume=resume, batch_size=batch_size,
+                pending_rows=pending_rows, total=total, model=model,
+                spec_sha=spec_sha, progress=progress,
+                lancedb=lancedb, pkb_mod=pkb_mod, pkb_provenance=pkb_provenance,
+                VectorIndex=VectorIndex, embed_mod=embed_mod,
+                EMBEDDING_DIM=EMBEDDING_DIM,
+            )
+        except OSError as e:
+            # QA-2: a read-only/full .cache raised a bare PermissionError/
+            # OSError past every RuntimeError handler in main(). Every other
+            # failure mode this verb reports uses an English message and a
+            # non-zero exit code -- this one must too.
+            raise ReembedIOError(
+                f"a filesystem operation failed while re-embedding "
+                f"{pkb_root}: {e}. Check that {_shadow_dir(pkb_root).parent} "
+                f"is writable (not full, not read-only) and re-run "
+                f"`./arailctl pkb reembed`."
+            ) from e
 
 
 def _run_locked(pkb_root: Path, *, resume: bool, batch_size: int,
@@ -431,17 +452,35 @@ def _run_locked(pkb_root: Path, *, resume: bool, batch_size: int,
     live_dir.mkdir(parents=True, exist_ok=True)
     live_table = live_dir / "pkb_pages.lance"
     backup_path: str | None = None
-    if live_table.exists():
+    live_table_exists = live_table.exists()
+    if live_table_exists:
+        # QA-1: two reembeds completing within the same wall-clock second
+        # both compute the same second-resolution backup name, and the
+        # second os.replace() collided with the first's non-empty backup
+        # dir (bare OSError(ENOTEMPTY), unhandled). Pick a name nothing is
+        # using instead of assuming the timestamp alone is unique.
         bak = live_dir / f"pkb_pages.lance.bak-{int(time.time())}"
+        suffix = 1
+        while bak.exists():
+            bak = live_dir / f"pkb_pages.lance.bak-{int(time.time())}-{suffix}"
+            suffix += 1
         os.replace(live_table, bak)
         backup_path = str(bak)
     shadow_table = shadow_dir / "pkb_pages.lance"
     if shadow_table.exists():
         os.replace(shadow_table, live_table)
+        live_table_exists = True
 
-    pkb_provenance.write(
-        live_dir, embedding_model=model.name, embedding_dim=EMBEDDING_DIM,
-        spec_sha256=spec_sha, rows=completed_count)
+    if live_table_exists:
+        # QA-3: an empty corpus with no pre-existing live table never
+        # creates `table` above (the batch loop has nothing to iterate),
+        # so there is nothing to swap in here either -- writing the
+        # sidecar unconditionally left a provenance record describing a
+        # table that was never written. Only write it when a live table
+        # actually exists after the swap attempt.
+        pkb_provenance.write(
+            live_dir, embedding_model=model.name, embedding_dim=EMBEDDING_DIM,
+            spec_sha256=spec_sha, rows=completed_count)
 
     _clear_checkpoint(pkb_root)
     shutil.rmtree(shadow_dir, ignore_errors=True)
