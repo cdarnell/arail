@@ -396,16 +396,56 @@ def _verify_ledger(migrations_dir: Path, files) -> tuple:
     return True, ""
 
 
+_SQLITE_HEADER_MAGIC = b"SQLite format 3\x00"
+
+
 def _read_user_version_readonly(db_path: Path) -> int:
-    """Open strictly read-only (``mode=ro``) — never creates the file, never
-    writes a byte, even a ``-wal``/``-shm`` sidecar."""
-    uri = f"file:{db_path}?mode=ro"
-    conn = sqlite3.connect(uri, uri=True)
+    """QA-1 (round 4): the original implementation opened the database via
+    ``sqlite3.connect("file:...?mode=ro", uri=True)``, which is NOT
+    write-free on a WAL-journaled database (``dbmod.connect`` always sets
+    ``journal_mode = WAL``) — verified in both directions by QA:
+
+    * SQLite >= 3.53: a ``mode=ro`` open of a WAL database MATERIALIZES
+      ``-wal``/``-shm`` sidecar files in ``data_dir`` — a write, on the
+      path §4.1 contractually defines as write-free.
+    * SQLite <= 3.51: the same open FAILS outright
+      (``unable to open database file``) whenever the ``-shm`` isn't
+      already present, because older SQLite cannot bring a WAL database
+      up read-only without creating it — and that failure becomes
+      ``state="blocked"``, which is a DEGRADING state, so a perfectly
+      healthy database in a data dir the process merely can't write
+      (read-only mount, tight restore permissions, a different SQLite
+      version than wrote it) degrades a live lab's ``status`` to exit 3.
+
+    Fix: read ``PRAGMA user_version``'s value directly from the SQLite
+    file header — bytes 60-63, big-endian signed 32-bit integer, per the
+    documented SQLite file format — via a plain ``open(path, "rb")``.
+    This never invokes SQLite at all, so it cannot create a WAL sidecar,
+    cannot fail to open a WAL file, and performs exactly one read() of at
+    most 100 bytes. Verified equivalent to the PRAGMA's own value on a
+    freshly-ensured database.
+
+    Correctness depends on one invariant elsewhere in this module: every
+    ``apply=True`` caller closes its connection before returning
+    (``ensure_db``'s ``finally: conn.close()``), which triggers SQLite's
+    normal WAL checkpoint-on-last-close and flushes the true
+    ``user_version`` into this header before any later ``apply=False``
+    call can read it. Do not remove that ``close()`` — this function
+    would then read a stale, pre-checkpoint value from a concurrently
+    open WAL database. (A live concurrent WRITER in a different process
+    can still leave the header transiently behind its own uncommitted
+    WAL frames — an accepted tradeoff of a health check that must never
+    write, not a correctness bug in the common case this module owns.)
+    """
     try:
-        row = conn.execute("PRAGMA user_version").fetchone()
-        return int(row[0]) if row else 0
-    finally:
-        conn.close()
+        with open(db_path, "rb") as f:
+            header = f.read(100)
+    except OSError as exc:
+        raise sqlite3.DatabaseError(f"cannot read {db_path}: {exc}") from exc
+    if len(header) < 100 or not header.startswith(_SQLITE_HEADER_MAGIC):
+        raise sqlite3.DatabaseError(
+            f"{db_path} does not look like a SQLite database file")
+    return int.from_bytes(header[60:64], byteorder="big", signed=True)
 
 
 def _load_spec_meta(spec_dir: Path):
