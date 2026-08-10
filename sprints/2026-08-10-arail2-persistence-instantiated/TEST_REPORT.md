@@ -1,13 +1,269 @@
 # Test report: ARAIL 2.0 persistence, instantiated
 
 **Date:** 2026-08-10
-**Build:** round 4 — [BUILD_LOG.md](./BUILD_LOG.md) at `d461a1d`
-**Verdict: FAIL** (round 4) — see §0. Round-3 verdict, and the findings that
-produced it, are preserved below from §1 onward.
+**Build:** round 5 — [BUILD_LOG.md](./BUILD_LOG.md) at `e1301d9`
+**Verdict: WEAK_PASS — ship it.** See §00. Rounds 4 and 3 are preserved below
+from §0 onward, unedited.
 
 ---
 
-## 0. Round 4 — re-test after the builder's fixes
+## 00. Round 5 — the gate
+
+**Verdict: WEAK_PASS.** Everything blocking is fixed and verified by execution
+on both interpreters. WEAK_PASS rather than PASS because two known findings
+(QA-11, QA-13) ship as filed debt by explicit ruling and one residual (F17's
+read/write window) is closed empirically rather than structurally. **My
+recommendation is unambiguous: merge this. There should not be a round 6.**
+
+### 00.1 Verification of the round-5 fixes
+
+| Finding | Status | Evidence |
+|---|---|---|
+| QA-12a zero-byte wedge | **Fixed** | `0-byte arail.db` → `apply=False: pending`, `apply=True: created`. Both anti-overshoot pins still assert `blocked`, unmodified and passing: a non-empty bad-magic file and a valid-magic-but-truncated file |
+| QA-12b concurrency | **Fixed empirically** | 8-process race **0/30** (round 4: 3/20); my header-read module **0/30**; both interpreters |
+| QA-10 wrong return type | **Fixed** | a `None`-returning predicate is now a finding at its registered tier; `relational_store` and `vector_backend` are still evaluated and recorded; `to_json` no longer raises |
+| QA-14 docstring | **Fixed** | now states the staleness is persistent after an abnormal exit, names the healing agent (the next `apply=True`), and warns against "fixing" it by reading through SQLite (which would reopen QA-1) |
+| QA-11, QA-13 | **Filed** | `sprints/BACKLOG.md:1143` and `:1178` |
+
+**The single remaining test failure is the filed one and nothing hides behind
+it.** Sprint-scope suite, both interpreters: `740 passed, 1 failed` (venv) /
+`732 passed, 1 skipped, 1 failed` (system python) — the one failure is
+`test_a_predicate_cannot_impersonate_another_mechanisms_key`, QA-11. I have
+converted it to `xfail(strict=True)` so the suite is green at merge while the
+repro stays executable and flips **loudly** the moment the back door closes,
+rather than rotting into a skipped line. Same treatment for the two new latent
+findings below.
+
+**Driver set, operator `.venv`:** `status_driver` **16/16**,
+`qa_db_collector_driver` **7/7**, `qa_db_seamless_driver` **9/9**,
+`qa_db_ledger_driver` **5/6**. The sixth is A2's third assertion — QA-13, the
+filed human-view item — and only that: A2's `--json` assertions (exit 3,
+`diverged` in `verdict.reasons`) pass, as do controls A0/A1/A3/A4.
+
+**Full suite:** `5363 passed, 62 failed, 32 skipped, 7 errors`. Against round
+3's `5344 passed, 68 failed`: **all six sprint-owned failures are gone**, the
+62 are the pre-existing `main` set proven against a merge-base clone in §9a,
+and the file histogram is identical to that baseline minus the sprint files.
+
+### 00.2 Ruling requested: does 0/20 retire F17, or just make it rarer?
+
+**Ruling: the race is empirically closed and structurally still present. I
+accept the builder's deviation and file the residual. Do not add locking to the
+read path.**
+
+I did not accept 0/20. I measured the window directly. Across **200 concurrent
+database creations, ~100,000 stat samples** taken by a reader polling the file
+while a real `ensure_db(apply=True)` subprocess created it, the main database
+file was observed in exactly two states:
+
+```
+size == 0        : 28,433 observations
+size >= 100      : 71,967 observations   (0 of them with a non-SQLite magic)
+```
+
+**No intermediate 1–99-byte state was ever observed**, and no `>=100`-byte
+sample ever had a bad header. SQLite writes page 1 in a single 4096-byte
+`write()`, so on this filesystem the 0 → full-header transition is atomic from
+a reader's point of view. The stat short-circuit therefore covers the *only*
+state a reader can actually catch, which is why 0/30 is not luck.
+
+What I will not claim is that it is impossible. The read still takes no lock,
+so correctness rests on a filesystem property (single-write page flush on APFS)
+rather than on mutual exclusion. On a filesystem where a partial write is
+visible — NFS, a network mount, a short write after a signal — a reader could
+still see a torn header.
+
+**Three reasons that is file-not-fix, and why the builder's judgement was
+right:**
+
+1. **The consequence is now transient, not permanent.** The wedge was QA-12a,
+   and it is gone. A torn-header read yields one `blocked` from one `status`
+   invocation; the next call sees a complete file. That is a cosmetic blip, not
+   a lab that cannot start.
+2. **Locking the read path would be a real regression.** `_apply_lock` is
+   `LOCK_EX` and blocking. Putting it on the read path makes `status` and
+   `doctor` **hang** behind an `install` replaying six roots — turning a
+   read-only health check that currently completes in **0.88 ms/root** into
+   something that can block indefinitely, against F9's budget and §4.4's
+   local-read promise. Trading a rare cosmetic blip for a hang is the wrong
+   trade, and it is exactly the class of "fix makes it worse" this sprint
+   already learned once, in round 4.
+3. **The cheap structural close, if anyone wants it later, is not a lock.** A
+   single retry on `DatabaseError` in `_read_user_version_readonly` (re-stat,
+   re-read once) closes the torn-header window with no blocking and no lock
+   ordering. Filed as the follow-up shape; not worth a sixth round.
+
+### 00.3 One more escape attempt — two latent holes, both filed
+
+Asked to try again to construct a mechanism that escapes. The type check holds
+against `None` and every wrong-type return I tried. Two holes remain, and
+**neither is reachable today**: `provisioning.register` has **no caller outside
+`src/arail/provisioning.py`** (verified by grep across `src/` and `lab/`), so
+every registered predicate is in-repo code reviewed by a human. They matter when
+ARAIL 2.1 adds a mechanism — which is the registry's entire purpose — so both
+are pinned as `xfail(strict=True)` repros rather than prose:
+
+- **QA-15 (LOW)** — `evaluate_all` catches `Exception`, not `BaseException`. A
+  predicate raising `SystemExit`/`KeyboardInterrupt` propagates through
+  `evaluate_all` *and* through `doctor.check_provisioning`'s outer
+  `except Exception`, aborting the whole checkup. Measured.
+- **QA-16 (LOW)** — no tier validation. An `Assertion` returning an
+  unrecognized tier (`"urgent"`) is a finding that degrades **nothing**:
+  `doctor`'s exit code counts only `level == "required"`. A typo'd tier in a
+  future mechanism is a finding nobody's exit code reads — QA-6's shape,
+  one layer out.
+
+### 00.4 The specified test nobody had written — now written, and it passes
+
+`ARCHITECTURE.md` §7 test 4 (F16) required proving that the **Atlas-free replay
+reproduces the declared schema**. It was never written, and five build rounds
+shipped on that assumption unverified. `atlas` is installed on this machine, so
+I ran it:
+
+```
+$ atlas schema diff --from sqlite://<ensured>/arail.db \
+      --to file://spec/schema/schema.hcl --dev-url "sqlite://dev?mode=memory"
+Schemas are synced, no changes to be made.
+```
+
+Committed as `tests/test_qa_schema_parity.py` (skips cleanly where `atlas` is
+absent — every user machine and CI), together with a test naming Assumption 4
+directly: no `_arail_migration*` table exists, so the `PRAGMA user_version`
+cursor is genuinely invisible to `atlas schema diff`. **This converts the single
+largest trust item in the sprint into evidence.**
+
+### 00.5 Performance — measured, not asserted
+
+The §4.5/§4.4 budgets had never been measured. Operator `.venv`, 20–50
+iterations each:
+
+| Path | Budget | Median | p95 |
+|---|---|---|---|
+| `ensure_db(apply=True)` cold create (first `start`) | ≤150 ms | **2.2 ms** | 2.8 ms |
+| `ensure_db(apply=True)` healthy (every later `start`) | ≤150 ms | **1.2 ms** | 1.5 ms |
+| `ensure_db(apply=False)` (`status`/`doctor`, per root) | <50 ms | **0.88 ms** | 0.97 ms |
+
+Two orders of magnitude inside budget; six roots cost ~5 ms of `status`. No
+BENCHMARK.md — there is no baseline to regress against and nothing here is on
+the retrieval or inference hot path.
+
+### 00.6 Operator-lab safety, round 5
+
+- Full stat listing of `lab/` (21,659 entries) before and after the round:
+  **`diff` empty**. Zero `arail.db` anywhere beneath it. `.venv` `site-packages`
+  still **454** entries. **19** stash entries intact. No `instance.env`
+  anomaly this round.
+- No bare `git stash`; nothing written through `make_fake_venv`'s `.venv/lib`
+  symlink; every fixture under `mktemp -d`.
+
+---
+
+## 00A. The three things asked for, plainly
+
+### 1. What remains UNPROVEN — what we take on trust at merge
+
+Not "what is broken" — what **no test covers**:
+
+1. **That the store is useful.** Nothing reads `arail.db` at runtime (§0 of
+   ARCHITECTURE, still true). We have proven the schema is created, correct
+   against its declaration, and honestly reported. We have **not** proven it
+   serves any feature, because no feature consumes it yet. The value delivered
+   is "the dependent service comes up", nothing more, and the docs must keep
+   saying so.
+2. **The win condition's positive half.** Buddy retrieving through
+   `search_for_agents` on a *provisioned* lab rests on the architect's manual
+   measurement (12 semantic hits, gated), not on a committed test. Only the
+   honest-failure half is tested. This is the same gap I named in round 3 and it
+   is still open — the largest untested surface in the sprint.
+3. **Every measurement is macOS/APFS on two SQLite versions** (3.51.0, 3.53.4).
+   Linux, WSL, network filesystems: unexercised. The F17 empirical closure in
+   particular is a statement about APFS write atomicity.
+4. **No clean-machine run.** `install.sh`/`start.sh` control flow is exercised
+   only through the fake-repo harness. Nobody has done fresh clone → `setup` →
+   `start` on a machine without a `.venv`, which is the product's actual first
+   five minutes.
+5. **`doctor`'s exit code end to end.** Asserted only through `provisioning`
+   unit tests; there is no `doctor_driver.sh` sibling to `status_driver.sh`.
+6. **Concurrency beyond 8 local processes**, and `flock` semantics on network
+   filesystems.
+7. **`.arail_ensure_state.json`** — written next to every database, read by
+   nothing. It is itself an instance of this sprint's own defect class, sitting
+   inside the sprint that named it.
+
+### 2. Should anything filed be promoted to a merge blocker?
+
+**One, and it is the architect's.**
+
+- **CI-runnable driver path — the evidence requirement is DISCHARGED; the
+  workflow entry is not, and I keep it as a merge blocker.** The architect
+  promoted this and named my run as the unblocking evidence. My runs discharge
+  the *question*: the path exists, all four DB drivers plus `status_driver` run
+  green and unattended against a real `.venv` (16/16, 7/7, 9/9, 5/6-by-design),
+  the longest takes ~40 s, none needs a GPU, a model or the network, and the
+  wrong-tree resolution that made a green driver meaningless (QA-8) is fixed.
+  What remains is adding them to `.github/workflows/`. I will not sign off on
+  merging a sprint whose central shell surface has no automated guard when the
+  guard is now a five-line workflow addition — **but it is a five-line change,
+  not another round.** Ship it in the merge commit.
+- **QA-13 (human view silent on a tampered ledger): keep filed, do not
+  promote.** `--json` reports it, `status` exits 3 whenever any lab is live, and
+  `start` warns at boot — which is the moment the SQL would actually run. The
+  contract text (§4.4 "up **or** the state is not ok") and the code disagree;
+  fix the text or the code in a follow-up, but this does not hold a release.
+- **QA-11, QA-15, QA-16: keep filed.** All three require a hostile or buggy
+  predicate, and there is no registration path outside the repo. All three are
+  now `xfail(strict=True)`, so they announce themselves.
+- **`make_fake_venv` hardening: keep filed.** Unchanged reasoning — shared
+  harness infrastructure, unverifiable without a real `.venv`, danger documented
+  at the site. My drivers proved you can break an import safely from the caller
+  side, which lowers the pressure further.
+- **§8 debt (the `ADD COLUMN … ON DELETE CASCADE` residual, the readiness-gate
+  promotion when a runtime reader lands): keep filed.** Both are correctly
+  described and both are pinned by tests.
+
+### 3. Honest shippability read — including whether five rounds made it worse
+
+**Ship it.**
+
+The part that can hurt a user is the part that has been attacked hardest and
+has not moved: what SQL runs automatically at boot. Across five rounds it has
+absorbed a 600-candidate grammar fuzz judged by a row-equality oracle rather
+than by the classifier's own opinion, seven closed bypasses, four
+ledger-tampering shapes that all refuse to create a database, a filename gate
+that rejects traversal-shaped names, and — as of today — an Atlas diff proving
+the replay reproduces the declared schema exactly. I have tried to breach that
+boundary in three separate QA passes and have not.
+
+**On whether the fixes made the code harder to reason about: mostly no, with
+one exception.** `provisioning.py` is *better* than it started — the registry
+now carries tiers, refuses duplicates, and validates returns; each rule is one
+guard clause with a named reason. `status.sh`'s suppression is *simpler* after
+ASK-6: keyed on a two-element state set instead of a boolean whose meaning had
+to be traced back through two call sites.
+
+The exception is `_read_user_version_readonly`. It is now 5 lines of code under
+45 lines of docstring, and the docstring is load-bearing: it encodes three
+separate near-misses (don't read through SQLite → reopens QA-1; don't remove the
+`close()` → staleness; don't treat empty as corrupt → the wedge). A future
+maintainer who reads only the code will get it wrong, in whichever direction
+they push. That is a real fragility and the honest way to describe it is that
+the comment *is* the design. I would rather have that than a clean-looking
+function that reintroduces one of the three, but it should be understood as a
+place the next person must slow down — which is precisely what the docstring
+now says.
+
+Five rounds is a lot. It bought a genuinely closed data-safety boundary, a
+reporting layer that survived a deliberate collector-kill, a class check that
+generalizes to mechanisms it was not written around, and a test harness that no
+longer silently exercises the wrong source tree. **What would change my answer:
+a runtime reader of `arail.db` landing before the readiness gate is promoted.
+Until that happens, the worst case here is a lab that reports a state
+inaccurately for one `status` invocation — and the best case, which is the
+common one, is that the thing this sprint exists to fix simply works.**
+
+---
+
+## 0. Round 4 — re-test after the builder's fixes (superseded by §00)
 
 **Verdict: FAIL.** Five of the six things I asked for are genuinely fixed and
 verified by execution on **both** interpreters. One fix — QA-1's — introduced a

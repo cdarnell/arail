@@ -233,6 +233,11 @@ def test_a_predicate_that_returns_garbage_does_not_silence_every_other_check():
     provisioning.to_json(rows)  # must not raise
 
 
+@pytest.mark.xfail(strict=True, reason=(
+    "QA-11: filed in sprints/BACKLOG.md by explicit coordinator ruling "
+    "(file, do not fix). strict=True so this flips loudly the moment the "
+    "back door is closed, rather than rotting into a permanently-skipped "
+    "line nobody reads."))
 def test_a_predicate_cannot_impersonate_another_mechanisms_key():
     """FINDING QA-11 (LOW, round 4, cosmetic).
 
@@ -255,3 +260,46 @@ def test_a_predicate_cannot_impersonate_another_mechanisms_key():
     assert len(keys) == len(set(keys)), (
         "one mechanism produced a row under another's key: %s"
         % sorted(k for k in keys if keys.count(k) > 1))
+
+
+# ── Round 5: two latent escapes, filed rather than blocking ────────────
+#
+# Neither is reachable today: `provisioning.register` has NO caller outside
+# src/arail/provisioning.py itself (verified by grep across src/ and lab/),
+# so every registered predicate is in-repo code. They matter when ARAIL 2.1
+# adds a mechanism — which is precisely what this registry exists for — so
+# they are pinned here as executable repros rather than prose in a backlog
+# entry.
+
+@pytest.mark.xfail(strict=True, reason=(
+    "QA-15 (LOW, filed): evaluate_all catches Exception, not BaseException. "
+    "A predicate raising SystemExit/KeyboardInterrupt propagates through "
+    "evaluate_all AND through doctor.check_provisioning's outer `except "
+    "Exception`, aborting the whole checkup."))
+def test_a_predicate_raising_baseexception_does_not_abort_the_checkup():
+    def _exit(**kw):
+        raise SystemExit(9)
+
+    provisioning.register("qa_sysexit", _exit)
+    rows = provisioning.evaluate_all(repo_root=".", data_dir=".")
+    found = {a.key: a for a in rows}
+    assert found["qa_sysexit"].finding is True
+    for essential in ("relational_store", "vector_backend"):
+        assert essential in found
+
+
+@pytest.mark.xfail(strict=True, reason=(
+    "QA-16 (LOW, filed): no tier validation. An Assertion returning an "
+    "unrecognized tier is a finding that degrades nothing — doctor's exit "
+    "code counts only level == 'required', so 'urgent' is silently "
+    "non-degrading. A typo'd tier in a future mechanism is invisible."))
+def test_an_unrecognized_tier_is_rejected_rather_than_silently_ignored():
+    provisioning.register(
+        "qa_bogus_tier",
+        lambda **kw: Assertion("qa_bogus_tier", "urgent", True, False,
+                               "declared, never instantiated", "fix me"))
+    rows = provisioning.evaluate_all(repo_root=".", data_dir="/nonexistent")
+    a = {x.key: x for x in rows}["qa_bogus_tier"]
+    assert a.tier in ("required", "info"), (
+        "tier %r is neither required nor info, so nothing acts on this "
+        "finding" % a.tier)
