@@ -686,6 +686,29 @@ db_collector_error = os.environ.get("DB_COLLECTOR_ERROR") or ""
 # ship a spec/ tree) would otherwise trip on every existing scenario.
 _DB_DEGRADING_STATES = {"pending", "blocked", "ahead", "diverged"}
 
+# ASK-6 (REVIEW3.md / TEST_REPORT.md): BLOCK-5's suppression (below) must be
+# keyed on the db STATE, not on the data_root_missing flag. "pending" (and
+# "unavailable") are states DERIVED FROM the missing directory — there is
+# nothing there, of course the db reads pending — and suppressing those is
+# correct (see BLOCK-5). "diverged"/"blocked"/"ahead" are facts about the
+# CHECKOUT (a tampered migration ledger, a corrupt file, a newer schema
+# version) that remain true regardless of whether the data root happens to
+# exist — gating them on data_root_missing swallowed a tampered-ledger
+# report end to end (reproduced: verdict.reasons empty, exit 0, human view
+# silent, on a checkout whose committed SQL had been altered).
+_DB_SUPPRESSIBLE_WHEN_ROOT_MISSING = {"pending", "unavailable"}
+
+
+def _suppress_for_missing_root(row_db, data_root_missing):
+    """None if row_db should be suppressed (state is one of the "there's
+    nothing there" states AND the data root is confirmed missing);
+    row_db unchanged otherwise — in particular, "diverged"/"blocked"/
+    "ahead" always pass through even when the data root is missing."""
+    if (row_db and data_root_missing
+            and row_db["state"] in _DB_SUPPRESSIBLE_WHEN_ROOT_MISSING):
+        return None
+    return row_db
+
 mode = facts["mode"]
 root_state = facts["root_state"]
 root_reason = facts["root_reason"] or None
@@ -740,15 +763,15 @@ for row in instances:
             candidates.append(3)
         else:
             candidates.append(0)
-        # BLOCK-5 (REVIEW2.md round 2): when the data root itself is
-        # missing, "db pending" is a derived, redundant complaint about a
-        # directory that isn't there — the real problem (data_root_missing,
-        # already reported below, deliberately non-degrading) is the
-        # cause, not a separate db-subsystem fact worth a second verdict
-        # reason. Suppressed here; the row-level db object is suppressed
-        # the same way in the instances_full augmentation below.
-        _row_db = (None if row.get("data_root_missing")
-                  else db_by_slug.get(slug, {}).get("db"))
+        # BLOCK-5 (REVIEW2.md round 2) + ASK-6 fix: suppress only the
+        # states DERIVED FROM the missing data root ("pending"/
+        # "unavailable" — see _suppress_for_missing_root above); a
+        # "diverged"/"blocked"/"ahead" fact about the CHECKOUT survives
+        # even when the data root is missing. The row-level db object is
+        # suppressed the same way in the instances_full augmentation
+        # below.
+        _row_db = _suppress_for_missing_root(
+            db_by_slug.get(slug, {}).get("db"), row.get("data_root_missing"))
         if _row_db and _row_db["state"] in _DB_DEGRADING_STATES:
             reasons.append(f"instance:{slug}:db:{_row_db['state']}")
             candidates.append(3)
@@ -803,16 +826,15 @@ for row in instances:
     slug = row.get("slug", "?")
     entry = db_by_slug.get(slug)
     row["origin"] = (entry or {}).get("origin", "registry")
-    # BLOCK-5: suppress the derived db object when the data root is
-    # missing — "pending" is the wrong word for a database that can't
-    # exist because its whole containing directory doesn't. The row
-    # already carries data_root_missing=True (rendered separately, both
-    # here and in the human view); this avoids a second, misleading
-    # complaint about the same underlying fact.
-    if row.get("data_root_missing"):
-        row["db"] = None
-    elif entry and entry.get("db"):
-        row["db"] = entry["db"]
+    # BLOCK-5 + ASK-6: suppress only "pending"/"unavailable" (derived from
+    # the missing directory — "pending" is the wrong word for a database
+    # that can't exist because its whole containing directory doesn't);
+    # "diverged"/"blocked"/"ahead" are facts about the CHECKOUT and must
+    # survive even when the data root is missing, or a tampered ledger
+    # renders with no trace anywhere status has one (ASK-6, reproduced:
+    # verdict.reasons empty, exit 0, human view silent).
+    row["db"] = _suppress_for_missing_root(
+        (entry or {}).get("db"), row.get("data_root_missing"))
     instances_full.append(row)
 
 # ARCHITECTURE.md §4.3's "on-disk-unregistered is itself a finding": any
