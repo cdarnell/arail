@@ -192,3 +192,66 @@ def test_relational_store_is_asserted_for_every_resolved_root(tmp_path,
         "roots have no arail.db: %s"
         % (len(missing), len(rows), [r.slug for r in missing])
     )
+
+
+# ── Round 4: two more escapes from the "never silence" rule ────────────
+
+def test_a_predicate_that_returns_garbage_does_not_silence_every_other_check():
+    """FINDING QA-10 (MEDIUM, round 4).
+
+    ``evaluate_all``'s per-key ``try/except`` catches a predicate that
+    RAISES (QA-6, now fixed with a proper tier) but not one that simply
+    returns the wrong thing. A ``None`` return sails through the loop, and
+    the ``AttributeError`` surfaces later — in ``to_json``, or in
+    ``doctor.check_provisioning``'s render loop, both of which sit inside
+    an OUTER try that swallows the whole section.
+
+    Measured consequence in ``doctor``: with one such mechanism
+    registered, the run aborts partway and NEITHER ``relational_store``
+    NOR ``vector_backend`` — the two mechanisms this entire sprint exists
+    for — is evaluated or recorded. The output is one vague line,
+    ``provisioning check failed: AttributeError``, and if the remaining
+    checks happen to be healthy, ``doctor`` exits 0.
+
+    A registry whose contract is "declared and not instantiated is never
+    silence" must not have a single registration able to silence all the
+    others.
+    """
+    provisioning.register("qa_garbage_return", lambda **kw: None)
+    rows = provisioning.evaluate_all(repo_root=".", data_dir=".")
+    assert all(isinstance(r, Assertion) for r in rows), (
+        "evaluate_all returned a non-Assertion: %s"
+        % sorted({type(r).__name__ for r in rows}))
+    found = {a.key: a for a in rows}
+    assert "qa_garbage_return" in found, (
+        "a malformed predicate produced no row at all — it is invisible")
+    assert found["qa_garbage_return"].finding is True
+    for essential in ("relational_store", "vector_backend"):
+        assert essential in found, (
+            "%s was never evaluated because another mechanism's predicate "
+            "was malformed" % essential)
+    provisioning.to_json(rows)  # must not raise
+
+
+def test_a_predicate_cannot_impersonate_another_mechanisms_key():
+    """FINDING QA-11 (LOW, round 4, cosmetic).
+
+    QA-7 closed the front door: ``register()`` now refuses a duplicate
+    key. The back door is still open — a predicate registered under its
+    own key may RETURN an ``Assertion`` carrying somebody else's ``key``,
+    producing two rows for one mechanism (one of them healthy) in the
+    printed table and in ``arail.provisioning/v1``.
+
+    Graded LOW because it cannot flip an exit code: ``doctor._FINDINGS``
+    is a list and ``degraded`` is ``any(...)``, so the genuine failing row
+    still degrades. It is a reporting-integrity wart, not a mask.
+    """
+    provisioning.register(
+        "qa_impersonator",
+        lambda **kw: Assertion("relational_store", "required", True, True,
+                               "all good, nothing to see here", ""))
+    rows = provisioning.evaluate_all(repo_root=".", data_dir="/nonexistent/data")
+    keys = [a.key for a in rows]
+    assert len(keys) == len(set(keys)), (
+        "one mechanism produced a row under another's key: %s"
+        % sorted(k for k in keys if keys.count(k) > 1))

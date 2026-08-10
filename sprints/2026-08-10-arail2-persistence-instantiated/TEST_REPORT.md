@@ -1,8 +1,209 @@
 # Test report: ARAIL 2.0 persistence, instantiated
 
 **Date:** 2026-08-10
-**Build:** [BUILD_LOG.md](./BUILD_LOG.md) at `0705234` (review round 3 — [REVIEW3.md](./REVIEW3.md), WEAK_PASS)
-**Verdict: FAIL**
+**Build:** round 4 — [BUILD_LOG.md](./BUILD_LOG.md) at `d461a1d`
+**Verdict: FAIL** (round 4) — see §0. Round-3 verdict, and the findings that
+produced it, are preserved below from §1 onward.
+
+---
+
+## 0. Round 4 — re-test after the builder's fixes
+
+**Verdict: FAIL.** Five of the six things I asked for are genuinely fixed and
+verified by execution on **both** interpreters. One fix — QA-1's — introduced a
+new defect that is worse in one specific way than the bug it replaced: it
+creates a lab state with **no recovery path through any documented verb**.
+
+| Round-3 finding | Round-4 status | Verified how |
+|---|---|---|
+| QA-1 write-free | **Fixed** — and **regressed** (QA-12) | 5/5 write-free tests pass on SQLite 3.51.0 *and* 3.53.4; `qa_db_seamless_driver.sh` S5 clean; builder's own `test_user_version_ahead_of_ledger` passes |
+| QA-2 / ASK-6 | **Fixed for `--json`; human view still silent** (QA-13) | ledger driver A2: exit 3 ✅, `diverged` in `verdict.reasons` ✅, human render ❌ |
+| QA-5 six roots | **Fixed** | passes on the real six-root shape (empty `registry.d`, 5 on-disk dirs) |
+| QA-6 crash tier | **Fixed** | a crashing `required` check stays `required` |
+| QA-7 silent overwrite | **Fixed** | duplicate `register()` refused + logged; `overwrite=True` is explicit |
+| QA-8 wrong source tree | **Fixed, sweep confirmed** | proved by execution, §0.4 |
+
+### 0.1 QA-12 (MEDIUM–HIGH, **new in round 4**) — the header read wedges a lab
+
+The fix is right in principle and I still endorse it: `_read_user_version_readonly`
+now reads bytes 60–63 of the SQLite header via `open(path,"rb")` and never
+invokes SQLite, so `apply=False` is genuinely zero-write on every version. What
+changed as a side effect is the treatment of a file that exists but has no
+header yet. The old code asked SQLite, and **SQLite treats a zero-length file as
+a valid empty database** (`PRAGMA user_version` → 0). The new code raises
+`DatabaseError`, which `ensure_db` maps to `blocked`.
+
+**QA-12a — a zero-byte `arail.db` is a permanent wedge.** Measured, side by
+side, same fixture:
+
+```
+round 3 (d161ac3):  0-byte arail.db -> apply=False: pending   apply=True: updated   (heals)
+round 4 (d461a1d):  0-byte arail.db -> apply=False: blocked   apply=True: blocked   (forever)
+```
+
+`install` refuses, `start` refuses, `status`/`doctor` degrade to exit 3, and
+`ensure` correctly never deletes a database — so nothing in the product clears
+it. A zero-byte `arail.db` is what a crash, `kill -9`, full disk, or a laptop
+losing power between file creation and the first commit leaves behind. The
+operator's only escape is deleting a file no documentation mentions.
+
+**QA-12b — a concurrency regression on F17.** The version is read *before*
+`_apply_lock` is taken, so a second process reading while the first has created
+the file but not yet written its header now gets `blocked`. Hammered, 20 runs
+each of the existing 8-process race:
+
+```
+round 3 (d161ac3):  0 failures / 20
+round 4 (d461a1d):  3 failures / 20   exit 3, "does not look like a SQLite database file"
+```
+
+F17's promise is "both end ok, no corruption". `install` looping six roots
+alongside a booting `start` is exactly this shape. New tests:
+`tests/test_qa_ensure_header_read.py` — `test_a_zero_byte_database_is_not_a_permanent_wedge`
+and `test_a_concurrent_reader_never_sees_a_half_created_database`, both failing
+on both interpreters.
+
+**The fix is small and the line is already understood:** an *empty* file is not
+corrupt — it is what SQLite itself calls a new database, so treat length 0 as
+version 0. A *non-empty* file with a bad magic stays `blocked` (F18, never
+auto-delete). Both halves are pinned by passing tests in the same module so a
+fix cannot overshoot.
+
+### 0.2 The staleness claim — probed, not accepted, and it is subtler than documented
+
+I built the case the builder reasoned about instead of taking the reasoning: a
+process that commits a `user_version` bump in WAL mode and then `os._exit(0)`
+without closing. On **both** interpreters the header then reads `7` while the
+database's true `user_version` is `42` — and with the writer dead, that is not
+"transient", it persists on disk until something opens the file with SQLite
+again. The docstring attributes the effect to "a live concurrent WRITER" and
+calls it transient; both words are wrong.
+
+**But the consequence is bounded and I am not blocking on it.** The apply path
+reads the PRAGMA through SQLite, not the header (`ensure.py:596` vs `:514`), so
+it always sees truth, and its `close()` heals the header. Verified end to end:
+
+```
+status after crash-stale header:  ok  v1     (under-reports)
+apply=True sees:                  ok  v42    (truth)
+status after heal:                ahead v42  (correct)
+```
+
+The read path can only ever *under*-report, which yields `ok`/`pending` — never
+a skipped migration, never a wrong write. Filed as **QA-14 (LOW)** with a pinned
+test asserting the *direction* of the error (never ahead of truth) rather than
+that staleness always occurs; whether it does depends on when SQLite happened to
+checkpoint, and a QA test may not be a coin flip. **The docstring should be
+corrected** — it currently tells the next maintainer this cannot persist.
+
+### 0.3 QA-10 / QA-11 (round 4) — two more escapes from "never silence"
+
+Asked to construct a fifth mechanism that still slips through. Two do:
+
+- **QA-10 (MEDIUM).** `evaluate_all`'s per-key `try/except` catches a predicate
+  that *raises* (QA-6, now correctly tiered) but not one that returns the wrong
+  *type*. A `None` return sails through; the `AttributeError` lands later, in
+  `to_json` or in `doctor.check_provisioning`'s render loop, both inside an
+  **outer** try that swallows the entire section. Measured in `doctor`: with one
+  such mechanism registered, the run aborts partway and **neither
+  `relational_store` nor `vector_backend` is evaluated or recorded** — the two
+  mechanisms this sprint exists for. Output is one vague line
+  (`provisioning check failed: AttributeError`), and if the surviving checks are
+  healthy, `doctor` exits 0. QA-7 was locked at the front door; this is one
+  registration silencing all the others.
+- **QA-11 (LOW, cosmetic).** A predicate may *return* an `Assertion` carrying a
+  different mechanism's `key`, producing two rows for one mechanism — one of
+  them healthy — in the table and in `arail.provisioning/v1`. It cannot flip an
+  exit code (`_FINDINGS` is a list, `degraded` is `any(...)`, so the genuine
+  failing row still degrades), which is the only reason it is LOW.
+
+### 0.4 QA-8 sweep — verified by execution, not by reading
+
+The builder's sweep is correct and the drivers now genuinely exercise this
+branch. Proved rather than argued — inside a harness-built fake repo, through
+the same `source .venv/bin/activate` subshell shape `status.sh`, `install.sh`
+and `start.sh` all use:
+
+```
+python3 -c 'import arail.dbspec.ensure as e; print(e.__file__)'
+ -> …/worktrees/eloquent-lederberg-6aeb3b/src/arail/dbspec/ensure.py
+python  -c … (the interpreter start.sh/install.sh actually call)
+ -> …/worktrees/eloquent-lederberg-6aeb3b/src/arail/dbspec/ensure.py
+```
+
+Both spellings resolve to the branch, not the main checkout. I also confirmed
+the claim about which embedded-python blocks import `arail` at all: only
+`status.sh:569` (`ensure_db`) and `start.sh`'s three `world_mount` imports;
+every other `python3 -c` in `status.sh`, `install.sh` and `instances.sh` is
+stdlib-only (`json`, `datetime`, `sys`). `install.sh` and `start.sh` reach
+`ensure` via `python -m arail.dbspec.ensure` inside the activated venv, which
+the same `PYTHONPATH` pin covers.
+
+### 0.5 QA-13 (MEDIUM) — ASK-6's remaining half: the human view
+
+The `--json` half is fixed and the controls hold: A0 (tampered ledger, nothing
+running → exit 4, `root.db.state=diverged`), A1 (live instance with a real data
+root → exit 3 + `instance:ai:db:diverged`), A3 (`atlas.sum` deleted), A4
+(unlisted migration) all pass. A2 now exits **3** with `diverged` in
+`verdict.reasons` — previously 0 and silent.
+
+What still fails is A2's third assertion, and I checked it in an independent
+topology so the driver's own killed-PID confound could not explain it. On a
+tampered checkout with **nothing running**:
+
+```
+--json : root.db.state = "diverged", detail names the hash mismatch
+human  : nothing.  "root lab: not running — ./arailctl start"
+```
+
+`status.sh` gates the human `db:` line on `state == "live"` / `root_is_live`,
+but §4.4 specifies it is printed "only when the lab is up **or the state is not
+`ok`**". This is pre-existing shape, not a round-4 regression, and it is
+mitigated: `start` warns on `diverged` at boot (`start.sh:747-756`), which is
+the moment the SQL would actually be replayed, and the exit code is a truthful
+`4` (nothing is running). **My recommendation is to file this, not to fix it in
+round 5** — but the contract text and the code should be made to agree either
+way, because right now one of them is wrong.
+
+### 0.6 Round-4 numbers
+
+| | |
+|---|---|
+| Sprint-scope Python, operator `.venv` | **738 passed, 3 failed** (QA-12a, QA-10, QA-11) |
+| Same, system `python3` (SQLite 3.51.0) | same 3, plus QA-12b's race reproducing 1–2 of 6 parametrized attempts |
+| Previously failing round-3 tests | **all 6 now pass on both interpreters** |
+| Shell drivers | `status_driver` 16/16 ✅ · `qa_db_collector_driver` 7/7 ✅ · `qa_db_seamless_driver` **9/9 ✅** (S5 fixed) · `qa_db_ledger_driver` 5/6 (A2 human view) |
+| `bash -n` | clean on all modified shell scripts, confirmed |
+| Operator's lab | **byte-identical** before/after (21,659-entry stat listing, empty `diff`); zero `arail.db` anywhere under it; venv `site-packages` still 454 entries. No `instance.env` anomaly this round |
+
+### 0.7 What I would need to see to sign this off
+
+Round 5 is small — two code changes and two decisions:
+
+1. **QA-12** (blocking) — treat a zero-length `arail.db` as version 0; keep
+   `blocked` for a non-empty file with a bad magic. Consider also moving the
+   version read inside `_apply_lock` so QA-12b closes structurally rather than
+   by luck. Both tests are written and will flip.
+2. **QA-10** (blocking, 3 lines) — validate the predicate's return type inside
+   the per-key `try`, so one malformed mechanism cannot silence the rest.
+3. **QA-14** (docs) — correct the staleness docstring: after a crash it is
+   persistent, not transient, and the healing agent is the next `apply=True`.
+4. **QA-11, QA-13** — file. Neither is worth another build round.
+
+**Honest read on shippability.** The data-safety boundary — which SQL runs
+automatically at boot — has now survived four rounds of deliberate attack and I
+have not breached it: 600 generated migrations against a row-equality oracle,
+seven known bypasses closed, four ledger-tampering shapes refusing to create a
+database. That is the part that could hurt someone, and it is solid. Everything
+still open is a *reporting or robustness* defect. The one I will not wave
+through is QA-12: "your lab is permanently blocked and no verb fixes it" is a
+worse operator experience than the silent-store bug this sprint set out to fix,
+and it did not exist before round 4. Fix that one, file the rest, and I expect
+to return PASS or WEAK_PASS on round 5 without a fifth round after it.
+
+---
+
+## 1. Round 3 — the original FAIL (preserved)
 
 Four findings block merge. Two of them are the sprint's own thesis recurring
 inside the code written to prevent it, and one — ASK-6 — the architect
@@ -15,7 +216,7 @@ tests.
 
 ---
 
-## 1. The headline
+## 1a. Round-3 headline
 
 | | |
 |---|---|
