@@ -1128,3 +1128,187 @@ contamination held across all four rounds. No bare `git stash` used.
   at face value, and confirmed the module's existing connection-close
   discipline already makes it safe — documented that dependency
   explicitly so it can't be silently broken by a future edit.
+
+## Round 5 (TEST_REPORT.md — commit 8dd65a2, verdict FAIL, narrow: QA-12 blocking + QA-10 blocking + QA-14 docs)
+
+QA's re-test confirmed five of round 4's six fixes genuinely fixed on
+BOTH SQLite interpreters (QA-1, ASK-6's `--json` half, QA-5/6/7, QA-8) —
+none touched this round, per instruction. One new regression introduced
+by the QA-1 fix itself (QA-12), plus two more "escapes from never
+silence" found by adversarial construction (QA-10 blocking, QA-11 filed),
+plus a docstring correction (QA-14).
+
+### QA-12 (blocking) — the header-byte read wedged a lab on a zero-length file
+
+QA-1's header-byte read (round 4) fixed write-freedom but changed the
+treatment of a database file that exists with no valid header yet.
+SQLite itself treats a zero-length file as a valid empty database
+(`PRAGMA user_version` → 0); the header read raised `DatabaseError` for
+*any* file that failed full 100-byte header validation, including a
+merely-empty one — which `ensure_db` turns into `state="blocked"`, a
+state this module (correctly) never auto-clears.
+
+**QA-12a**: a zero-byte `arail.db` — exactly what a crash, `kill -9`, a
+full disk, or a laptop losing power between file creation and first
+commit leaves behind — was wedged permanently: `install` refuses,
+`start` refuses, `doctor` can't repair it, no documented verb clears it.
+Worse than the bug QA-1 fixed, since round 3's code treated the same
+file as version 0 and self-healed.
+
+**QA-12b**: the same root cause reopened F17 — the version is read
+*before* `_apply_lock` is taken, so a concurrent `apply=True` process
+could observe a sibling's just-`dbmod.connect(create=True)`'d-but-not-
+yet-written file (0 bytes, no header) and get `blocked` instead of
+"version 0". QA measured 0/20 on round 3, 3/20 on round 4, for the
+existing 8-process race.
+
+**Fix**: `_read_user_version_readonly` now `stat()`s the file first;
+`size == 0` short-circuits to version 0 (SQLite's own semantics) before
+ever attempting to open/read it. A non-empty file that still fails
+header validation (bad magic, truncated mid-header) is unchanged — still
+raises, still `blocked`, still never auto-deleted (F18's "never
+auto-delete, report it" holds).
+
+**I did not move the version read inside `_apply_lock`** (the
+coordinator's "consider" suggestion, not a requirement) — the stat-based
+fix alone closed both halves cleanly in testing (below), and adding lock
+acquisition to the read path would introduce a blocking dependency
+between `status`/`doctor` (which must stay genuinely non-blocking, §4.1)
+and a concurrent `install`/`start`'s migration apply, a behavior change
+beyond what QA-12 required. If a future adversarial pass finds the
+stat-based fix insufficient under different timing, that's the next
+place to look.
+
+**Verified — neither half of the zero-length/bad-magic pair was
+weakened to pass:**
+- `tests/test_qa_ensure_header_read.py`: all 11 cases pass, including
+  `test_a_truncated_but_nonempty_header_is_still_blocked` and
+  `test_a_short_but_valid_magic_prefix_is_blocked_not_misread` (QA's own
+  pins against overshooting in the *other* direction) — both still
+  assert `"blocked"` and both still pass, unmodified.
+- Repeated the full `test_qa_ensure_header_read.py` module 20 times in a
+  row: **20/20 clean**, zero flakes on the concurrent-reader
+  parametrized cases.
+- **Re-ran the existing 8-process concurrency race
+  (`test_qa_ensure_concurrency.py`) 20 times, matching QA's exact
+  benchmark: 20/20 clean (0 failures)**, down from round 4's 3/20.
+
+Commit: `83f3184` — `fix(dbspec): QA-12 — treat a zero-length arail.db as version 0, not corrupt`
+(also folds in QA-14's docstring correction — see below, no separate commit needed since it's the same function's docstring QA-12 already touches).
+
+### QA-14 (LOW, docs only) — the staleness docstring was wrong, the code was fine
+
+QA built the adversarial case rather than accepting the round-4
+docstring's reasoning: a process that commits a `user_version` bump in
+WAL mode and then `os._exit(0)` without closing leaves the header behind
+the true value **persistently** (not "transiently") and with the writer
+**dead** (not "a live concurrent writer") — both words in the original
+docstring were wrong, on both interpreters.
+
+**I did not change the code — QA confirmed the consequence is bounded
+and I agree.** The apply path reads the PRAGMA through SQLite, not the
+header, so it always sees the truth and its own `close()` heals the
+header for every reader after it; the read path can only ever
+under-report (never a version ahead of truth), so the failure mode is
+"a beat slow to notice new work," never a skipped migration or a wrong
+write. Corrected the docstring (part of the same edit as QA-12, since
+both are in `_read_user_version_readonly`'s docstring) to state this as
+the real invariant instead of the false "transient"/"live writer"
+claims. `tests/test_qa_ensure_header_read.py::test_an_unflushed_wal_leaves_the_header_behind_but_self_heals`
+(QA's pinned test, asserting the *direction* of the error rather than
+that staleness always occurs) passes.
+
+### QA-10 (blocking) — a predicate returning the wrong type silenced every other check
+
+`evaluate_all`'s per-key `try/except` caught a predicate that *raises*
+(QA-6, already correctly tiered in round 4) but not one that simply
+*returned* the wrong type. A `None` return sailed through the loop; the
+`AttributeError` it caused surfaced later in `to_json` or `doctor.
+check_provisioning`'s render loop — both behind an OUTER try that
+swallows the entire provisioning section. Measured: one malformed
+mechanism registered meant neither `relational_store` nor
+`vector_backend` — the two mechanisms this sprint exists for — was
+evaluated or recorded, and `doctor` exited 0 if the surviving checks
+were healthy. QA-7 locked the front door (no silent registry overwrite);
+this was one bad registration silencing every other mechanism through
+the back.
+
+**Fix**: `evaluate_all` now validates `isinstance(result, Assertion)`
+inside the same per-key `try` that already catches raises, and treats a
+non-`Assertion` return exactly like a raise — a finding, using the
+mechanism's registered tier, naming what it actually returned. Every
+other mechanism continues to evaluate normally alongside it.
+
+Commit: `c295061` — `fix(provisioning): QA-10 — a predicate returning the wrong type no longer silences every other check`
+
+### QA-11 and QA-13 — filed, not fixed, per explicit coordinator ruling
+
+**QA-11 (LOW, cosmetic)**: a predicate can return an `Assertion` under
+*another* mechanism's key, producing a duplicate row. Left deliberately
+failing (`test_a_predicate_cannot_impersonate_another_mechanisms_key`)
+— cannot flip an exit code (`doctor._FINDINGS` is a list, `degraded` is
+`any(...)`), a reporting-integrity wart, not a mask. Filed in
+`sprints/BACKLOG.md` with the fix shape for a future sprint (extend
+QA-10's type check to also verify `result.key == key`).
+
+**QA-13 (MEDIUM, mitigated)**: `status.sh`'s human render gates the
+`db:` line on liveness, so a tampered ledger on a checkout with nothing
+running reports `diverged` in `--json` but says nothing in the human
+view — narrower than ARCHITECTURE.md §4.4's literal "up OR the state is
+not ok" text. Mitigated: `start` warns on `diverged` at boot (the moment
+the SQL would actually be replayed), and exit `4` stays truthful
+("nothing running" is not a lie). Filed with both resolution options
+(match the code to the contract text, or narrow the contract text to
+match the code) — deliberately not chosen this round, per the
+coordinator's explicit "file, do not fix."
+
+Commit: `11ca5b2` — `docs(backlog): file QA-11 and QA-13 per explicit coordinator ruling`
+
+### What round 5 did NOT do
+
+Did not touch any of the five round-4 fixes QA verified genuinely fixed
+on both interpreters (QA-1, ASK-6's `--json` half, QA-5/6/7, QA-8). Did
+not move the version read inside `_apply_lock` (considered, judged
+unnecessary — see QA-12 above). Did not fix QA-11 or QA-13 (explicit
+ruling). Did not touch `lab/` (confirmed empty diff after every commit).
+Did not run `install.sh`/`start.sh` against the operator's real lab. Did
+not use a bare `git stash`. Did not write through `make_fake_venv`'s
+`.venv/lib` symlink.
+
+### Full regression sweep after round 5
+
+```
+PYTHONPATH=src python3 -m pytest tests/test_dbspec_ensure.py \
+  tests/test_data_dirs_resolve.py tests/test_data_dirs_resolve_shell_parity.py \
+  tests/test_provisioning.py tests/test_qa_provisioning_generalize.py \
+  tests/test_pkb_semantic_backend_absent.py tests/test_win_condition_honest_failure.py \
+  tests/test_seamless_db_integration.py tests/test_cli_status.py tests/test_pkb.py \
+  tests/test_pkb_gate.py tests/test_pkb_retrieve_for_agents.py tests/test_dbspec_spec.py \
+  tests/test_qa_ensure_write_free.py tests/test_qa_ensure_concurrency.py \
+  tests/test_qa_ensure_statement_safety.py tests/test_qa_retrieval_honesty.py \
+  tests/test_qa_ensure_header_read.py -q
+```
+**791 passed, 1 failed (QA-11, left failing on purpose and filed), 2
+skipped** (unchanged no-`.venv` self-skip reasons) — beats the "numbers
+to beat" baseline of 738 passed/3 failed. `bash -n` clean on every
+modified shell script (none modified this round — round 5 was pure
+Python). `git diff --stat -- lab/` empty after every commit — zero
+`lab/` contamination held across all five rounds. No bare `git stash`
+used. 19 stash entries in the repo, all pre-existing and untouched.
+
+### Final state, round 5
+
+- **3 additional commits**: `83f3184` (QA-12 + QA-14 docstring),
+  `c295061` (QA-10), `11ca5b2` (QA-11/QA-13 filed), plus this BUILD_LOG
+  update — 31 commits total across five rounds.
+- **All blocking findings fixed**: QA-12 by 11 pinned tests (both
+  directions) plus two independent 20x race re-runs, both clean; QA-10
+  by the QA test suite. QA-14 corrected as a docstring-only change, no
+  code touched, per QA's own bounded-consequence finding.
+- **Confirmed: did not weaken either half of the zero-length/bad-magic
+  pair.** The two tests QA wrote specifically to catch overshooting
+  (`test_a_truncated_but_nonempty_header_is_still_blocked`,
+  `test_a_short_but_valid_magic_prefix_is_blocked_not_misread`) both
+  still assert `state == "blocked"` for genuinely corrupt input, and
+  both still pass — a non-empty file that isn't a valid SQLite header is
+  exactly as refused as it was before this round.
