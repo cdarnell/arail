@@ -652,3 +652,114 @@ hardening `make_fake_venv` against writes into the real venv.
    unchanged; `install` and `start` behaviour), a note that `arail.db` has no
    runtime reader yet, `CHANGELOG.md`, and the two BACKLOG entries.
 9. Switch remaining `--all-instances` consumers to `resolve_data_dirs`.
+
+## 10. CI findings — architect rulings (2026-08-10, PR #181)
+
+Two CI failures on the merge-blocking driver wiring. Both real, neither a
+flake. Rulings below; both block merge, both are fixable in this sprint.
+
+### Finding 1 — `T3/daemon-a` fails on Linux: gate it, and file the real gap it sits next to
+
+**The coordinator's reading is confirmed on the "why now," and corrected on the
+"what."** This is not a latent product defect that CI just caught. It is a test
+that encodes a macOS-only fixture with no platform gate:
+
+- `scripts/lib/instances.sh:464` — `daemon_active()` opens with
+  `[[ "$(uname -s)" == "Darwin" ]] || return 1`.
+- `scripts/install-daemon.sh:35` — refuses on non-Darwin outright:
+  *"launchd supervision is macOS-only."*
+- `T3/daemon-a` stubs `launchctl` and plants
+  `$FAKE_HOME/Library/LaunchAgents/io.arail.portal.plist`.
+
+On Linux the scenario cannot pass and the product is behaving correctly:
+launchd supervision cannot be installed there, so "not daemon" is the truth.
+
+**Ruling: platform-gate `T3/daemon-a` and `T3/daemon-b` on Darwin, and file the
+adjacent gap.** The gate is legitimate here for one specific reason, and the
+distinction is worth stating because it is the one this sprint has been
+enforcing all along: **a platform gate on a test is legitimate when the product
+is gated at the same boundary and says so; it is illegitimate when the gate is
+chosen to turn a red test green.** The product gate (`install-daemon.sh:35`,
+`daemon_active():464`) predates the test and is documented. Nothing is being
+hidden.
+
+Two conditions on the gate:
+
+1. **The skip must be loud.** The driver must print which scenarios it skipped
+   and why, so a Linux CI run never reports full coverage it did not have.
+   A silent skip would re-create this sprint's own defect class at the test
+   layer.
+2. **File the real gap it sits beside.** `scripts/gentoo-bootstrap.sh:182`
+   installs OpenRC services (`rc-update add arail-portal default`), so ARAIL
+   *can* be supervised on Gentoo — and `daemon_active()`'s Darwin-only guard
+   makes `status` report `supervision.mode: "foreground"` for a lab that is
+   actually supervised. That is a genuine, pre-existing observability defect,
+   out of scope here (this sprint is persistence, not supervision), and it must
+   be a filed ticket rather than a footnote. It is also the reason the ruling
+   above is scoped to "gate the launchd scenarios," not "Linux has no
+   supervision."
+
+### Finding 2 — `doctor` exits 3 after `setup`: fix the lab, not the detector
+
+**The check is correct and is reporting the truth.** After `setup`, that lab's
+relational store genuinely is not instantiated. The golden path is
+`setup → doctor → start`, and `ensure_db` was wired into `install` and `start`
+only.
+
+**Ruling: option (a) — wire `ensure_db` into `setup.sh`. Reject (b). Reject (c).**
+
+- **(b), making `relational_store` non-degrading before first start, is
+  rejected outright.** It is severity-tuning the one check whose entire purpose
+  is "declared and not instantiated ⇒ always a finding," and it would need a
+  lifecycle marker to know what "before first start" means — more
+  written-and-never-read state, when QA has already flagged
+  `.arail_ensure_state.json` as this sprint's own defect class appearing inside
+  it. Two instances is a pattern.
+- **(c), splitting "never provisioned" from "provisioned and broken" at the
+  tier layer, is a real option and is rejected as unnecessary here.** It is not
+  new severity-tuning — `doctor` already has exactly this convention (`ttyd`,
+  `code-server`, "no model installed" are `info`, degrading only under
+  `--strict`), and `Assertion.tier` already exists to express it. But adopting
+  it *would* mean a lab whose `setup` silently failed to create the DB reports
+  `pending` at `info` and exits 0 — defect A, invisible again. With (a) in
+  place, (c) buys nothing and costs exactly the blindness this sprint removed.
+  Keep `relational_store` at `required`.
+- **(a) is the correct fix because the gap is real and it is mine.** `CLAUDE.md`
+  documents `./arailctl setup && ./arailctl start` as the first-run path, and
+  the operator's ruling was "make this seamless and easy." §4.5 covered `start`
+  and §4.6 covered `install`; **there is no §4.6b for `setup`, and that is a
+  design omission in this document, not builder drift.** A user following the
+  documented first-run sequence currently gets a degraded `doctor` between the
+  two commands. That is the headline ruling failing, and the answer is to fix
+  the lab, not to mute the reporter.
+
+**Constraints on the `setup` wiring** (it is a call site, not a new mechanism —
+no new policy, no new code path):
+
+1. Reuse the existing shim verbatim:
+   `python -m arail.dbspec.ensure <data_dir> --apply --quiet-ok`. Same
+   allowlist classifier, same `atlas.sum` ledger verification, same
+   safe-forward-only line. **The create-vs-lossy distinction holds identically
+   in `setup`** — nothing about the caller changes what may be auto-applied.
+2. Sequence it **after the deps phase** (the package must be importable) and
+   after the lab directories exist.
+3. Drive it from `resolve_data_dirs()`, not a hardcoded root, so re-running
+   `setup` on an existing multi-World lab behaves like `install`.
+4. **`setup` must not fail on this.** Warn, name the verb, continue — matching
+   `install` (degrades, never hard-fails) and `start` (warns, continues), and
+   honoring the standing "setup never fails on this" promise.
+5. No network, no embedder, no Atlas — `ensure_db` is local file + SQLite only,
+   so the airgapped default is unaffected.
+
+"`setup` becomes a writer" is not a real cost: `setup` already creates the
+`.venv`, pip-installs, writes `.env`, creates the lab tree, and pulls models.
+Creating an empty schema inside a directory it just made is the least invasive
+thing it does.
+
+### Merge status
+
+Both findings block merge. Neither is a follow-up sprint: Finding 1 is a
+platform gate plus a filed ticket, Finding 2 is a call site reusing a shim that
+has already been through three review rounds. Two tickets to file: the
+OpenRC/`daemon_active` supervision gap, and (still open from REVIEW3) the
+CI-runnable driver path, which this very episode is the argument for.
