@@ -397,3 +397,54 @@ def _apply_locked(conn, data_dir, migrations, total, present,
             state=state, version=cur_version, applied=applied,
             pending=pending_now, detail=detail, action=action,
         )
+
+
+def _report_line(report: "EnsureReport") -> str:
+    """One human-readable line for a single root — the shape `install`'s
+    per-root summary and `start`'s single line both use. Quiet boot
+    (F10): the caller decides whether to print at all; this only decides
+    the wording once it has decided to print."""
+    if report.state in ("created", "updated"):
+        verb = "created" if report.state == "created" else "applied"
+        n = len(report.applied)
+        plural = "" if n == 1 else "s"
+        return (f"db: {verb} {n} migration{plural} at {report.db_path} "
+                f"(schema v{report.version})")
+    if report.state == "ok":
+        return f"db: {report.db_path} — ok (schema v{report.version})"
+    # blocked / ahead / diverged / unavailable
+    detail = f" — {report.detail}" if report.detail else ""
+    action = f" — run {report.action}" if report.action else ""
+    return f"db: {report.db_path} — {report.state}{detail}{action}"
+
+
+def main(argv=None) -> int:  # pragma: no cover — thin CLI shim, exercised
+    # via scripts/install.sh and scripts/start.sh, not directly by pytest.
+    """``python -m arail.dbspec.ensure <data_dir> [--apply]`` — the shell
+    integration point for ``install``/``start``, so neither has to embed
+    Python beyond a single ``python -m`` invocation (matches the existing
+    ``python -m arail.compiled_kb bootstrap`` pattern in
+    ``scripts/install.sh``). Exits 0 for ok/created/updated/pending
+    (pending is not a hard failure — start still boots, per §4.5), and 3
+    for blocked/ahead/diverged/unavailable, so a caller that cares can
+    detect "did not come up clean" without parsing prose."""
+    import argparse
+    import sys as _sys
+
+    ap = argparse.ArgumentParser(prog="python -m arail.dbspec.ensure")
+    ap.add_argument("data_dir")
+    ap.add_argument("--apply", action="store_true")
+    ap.add_argument("--spec-dir", default=None)
+    ap.add_argument("--quiet-ok", action="store_true",
+                    help="print nothing when state is 'ok' with nothing applied")
+    args = ap.parse_args(argv)
+
+    report = ensure_db(args.data_dir, apply=args.apply, spec_dir=args.spec_dir)
+    if not (args.quiet_ok and report.state == "ok" and not report.applied):
+        print(_report_line(report))
+    return 0 if report.state in ("ok", "created", "updated", "pending") else 3
+
+
+if __name__ == "__main__":  # pragma: no cover
+    import sys
+    sys.exit(main())
