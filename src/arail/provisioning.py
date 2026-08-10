@@ -244,7 +244,24 @@ def evaluate_all(**kwargs) -> List[Assertion]:
     for key in registered_keys():
         fn, tier = _REGISTRY[key]
         try:
-            out.append(fn(**kwargs))
+            result = fn(**kwargs)
+            # TEST_REPORT.md QA-10: a predicate that RAISES was already
+            # caught (above/except); one that simply returns the wrong
+            # TYPE was not — a None (or any non-Assertion) return used to
+            # sail through this loop, and the AttributeError it caused
+            # surfaced later inside to_json or doctor's render loop, both
+            # behind an OUTER try that swallows the entire provisioning
+            # section — silencing every other mechanism, including
+            # relational_store and vector_backend, the two this sprint
+            # exists for. Treated exactly like a raise: a finding, using
+            # the mechanism's registered tier, never silence.
+            if not isinstance(result, Assertion):
+                out.append(Assertion(
+                    key, tier, True, False,
+                    f"check returned {type(result).__name__}, not an "
+                    f"Assertion — treated as a broken check", ""))
+            else:
+                out.append(result)
         except Exception as exc:  # noqa: BLE001
             out.append(Assertion(key, tier, True, False,
                                  f"check raised {type(exc).__name__}: {exc}", ""))
