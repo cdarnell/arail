@@ -78,22 +78,122 @@ def test_vector_backend_instantiated_is_not_a_finding(monkeypatch):
     assert a.finding is False
 
 
-def test_kb_gate_declared_and_nothing_approved_is_a_finding(monkeypatch):
+# ARCHITECTURE.md §10 Finding 3: check_kb_gate now decides on
+# compiled_kb.gate_state(cheap=False), not approved_paths() alone —
+# tests monkeypatch gate_state directly, matching the real predicate.
+
+def _gate_state(**overrides):
+    base = {
+        "schema": "arail.kb-gate/v1", "enabled": True, "manifest_present": True,
+        "approved_count": 0, "live_count": 0, "pending_count": 0,
+        "state": "empty", "hint": "",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_kb_gate_off_is_not_a_finding(monkeypatch):
     from arail import compiled_kb
-    monkeypatch.setattr(compiled_kb, "gate_enabled", lambda: True, raising=False)
-    monkeypatch.setattr(compiled_kb, "approved_paths", lambda: [])
+    monkeypatch.setattr(
+        compiled_kb, "gate_state",
+        lambda **kw: _gate_state(enabled=False, state="off"), raising=False)
+    a = provisioning.check_kb_gate()
+    assert a.declared is False
+    assert a.finding is False
+
+
+def test_kb_gate_no_corpus_is_not_applicable_not_a_finding(monkeypatch):
+    """Truth table row 2: nothing approved AND nothing pending — there is
+    no corpus to have a consent decision about yet. declared=False, so
+    this is NOT-APPLICABLE, not a lowered-severity finding."""
+    from arail import compiled_kb
+    monkeypatch.setattr(
+        compiled_kb, "gate_state",
+        lambda **kw: _gate_state(approved_count=0, pending_count=0,
+                                 live_count=0, state="unbootstrapped"),
+        raising=False)
+    a = provisioning.check_kb_gate()
+    assert a.declared is False
+    assert a.finding is False
+    assert "no corpus" in a.detail
+
+
+def test_kb_gate_declared_and_nothing_approved_is_a_finding(monkeypatch):
+    """Corpus exists (pending_count > 0), nothing approved yet —
+    required, loud finding."""
+    from arail import compiled_kb
+    monkeypatch.setattr(
+        compiled_kb, "gate_state",
+        lambda **kw: _gate_state(approved_count=0, pending_count=5,
+                                 live_count=0, state="empty"), raising=False)
     a = provisioning.check_kb_gate()
     assert a.declared is True
     assert a.instantiated is False
     assert a.finding is True
+    assert a.tier == "required"
+    assert "5" in a.detail and "await approval" in a.detail
 
 
 def test_kb_gate_declared_and_approved_is_not_a_finding(monkeypatch):
     from arail import compiled_kb
-    monkeypatch.setattr(compiled_kb, "gate_enabled", lambda: True, raising=False)
-    monkeypatch.setattr(compiled_kb, "approved_paths", lambda: ["a.md", "b.md"])
+    monkeypatch.setattr(
+        compiled_kb, "gate_state",
+        lambda **kw: _gate_state(approved_count=2, pending_count=0,
+                                 live_count=2, state="populated"), raising=False)
     a = provisioning.check_kb_gate()
     assert a.finding is False
+
+
+def test_kb_gate_cheap_true_pending_unknown_stays_required_not_quiet(monkeypatch):
+    """The -1 ("not computed") case must never be read as "no corpus" —
+    fail loud on ignorance. approved==0, pending==-1: -1 != 0, so this
+    is NOT the "no corpus" branch and must stay declared + a loud
+    finding (assuming a corpus exists) rather than going quiet."""
+    from arail import compiled_kb
+    monkeypatch.setattr(
+        compiled_kb, "gate_state",
+        lambda **kw: _gate_state(approved_count=0, pending_count=-1,
+                                 live_count=0, state="empty"), raising=False)
+    a = provisioning.check_kb_gate()
+    assert a.declared is True
+    assert a.instantiated is False
+    assert a.finding is True
+    assert "unknown" in a.detail
+
+
+def test_kb_gate_calls_gate_state_with_cheap_false(monkeypatch):
+    """The predicate must never use the cheap=True variant — it exists
+    for hot callers (lab_brain/researcher), not doctor, and its -1
+    sentinel is exactly the "unknown" case that must stay loud."""
+    from arail import compiled_kb
+    calls = []
+
+    def _spy(**kw):
+        calls.append(kw)
+        return _gate_state(approved_count=1, pending_count=0, live_count=1,
+                           state="populated")
+
+    monkeypatch.setattr(compiled_kb, "gate_state", _spy, raising=False)
+    provisioning.check_kb_gate()
+    assert calls == [{"cheap": False}]
+
+
+def test_kb_gate_operators_real_topology_stays_loud(monkeypatch):
+    """THE BOUNDARY THAT MUST SURVIVE (coordinator's explicit ask): the
+    operator's real topology — a mounted World with unapproved pages,
+    pending_count > 0 — must stay declared and stay loudly degraded.
+    Modeled on the measured real case: 351 approvable pages, 0 approved."""
+    from arail import compiled_kb
+    monkeypatch.setattr(
+        compiled_kb, "gate_state",
+        lambda **kw: _gate_state(approved_count=0, pending_count=351,
+                                 live_count=0, state="empty"), raising=False)
+    a = provisioning.check_kb_gate()
+    assert a.declared is True
+    assert a.instantiated is False
+    assert a.finding is True
+    assert a.tier == "required"
+    assert "351" in a.detail
 
 
 def test_embedding_provenance_finding_when_degraded():

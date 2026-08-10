@@ -160,30 +160,89 @@ def check_vector_backend(**_kw) -> Assertion:
 
 
 def check_kb_gate(**_kw) -> Assertion:
-    """QA-6: the Compiled-KB gate is declared on; is anything approved (or
-    is there an explicit empty decision on record)?"""
+    """QA-6 / ARCHITECTURE.md §10 Finding 3: the Compiled-KB gate is
+    declared on only when there is a corpus that COULD be approved.
+
+    The predicate this replaced decided on ``len(approved_paths()) > 0``
+    alone and ignored ``compiled_kb.gate_state()`` entirely — even
+    though QA-6 built that function's four states (``off`` /
+    ``unbootstrapped`` / ``empty`` / ``populated``) specifically to keep
+    "nothing to approve yet" apart from "N approvable pages, zero
+    approved." Under the old predicate a lab with zero source documents
+    and no World ever mounted reported IDENTICALLY to the operator's real
+    `ai` World (351 approvable pages, none approved) — collapsing
+    exactly the distinction QA-6 existed to preserve, and making
+    ``doctor`` un-greenable on any clean machine, which teaches
+    operators to ignore it.
+
+    Fixed at ``declared``, never at ``tier`` — this is NOT the
+    severity-tuning the architect rejected for ``relational_store``
+    (which downgrades the tier by lifecycle and hides a real defect).
+    The asymmetry: ``relational_store`` can be instantiated
+    unconditionally BY THE MACHINE (an empty schema decides nothing on
+    the operator's behalf — see ``setup_db_ensure``, §10 Finding 2), so
+    that gap was closed by making a workflow create it. ``kb_gate``
+    cannot: approving knowledge is a CONSENT decision (the
+    2026-08-09 compiled-kb-bootstrap sprint ruled it must never happen
+    automatically), so there is no workflow fix here that isn't CI
+    fabricating consent. A lab with nothing that could be approved is
+    correctly not-applicable, not a lowered-severity finding.
+
+    Truth table (§10):
+      gate off                        -> declared=False             -> not a finding
+      no corpus (approved+pending==0) -> declared=False             -> not-applicable
+      corpus exists, nothing approved -> declared=True,  inst=False -> REQUIRED, loud
+      anything approved and live      -> declared=True,  inst=True  -> OK
+
+    Calls ``gate_state(cheap=False)`` — ``cheap=True`` reports
+    ``pending_count=-1`` ("not computed"), and this predicate must never
+    read that as "no corpus": the "no corpus" check below
+    (``approved == 0 and pending == 0``) already fails correctly on
+    ``-1`` (a `-1` is never `0`, so it falls through to the loud
+    required-finding path rather than "not-applicable") without any
+    special-casing — fail loud on ignorance, never quiet. ``doctor`` is
+    not a hot path; the tree walk `gate_state` does here is affordable.
+    """
     try:
         from arail import compiled_kb
     except Exception as exc:  # noqa: BLE001
         return Assertion("kb_gate", "info", True, False, f"unavailable: {exc}",
                          "./arailctl pkb approve")
     try:
-        gate_on = bool(getattr(compiled_kb, "gate_enabled", lambda: True)())
-    except Exception:  # noqa: BLE001
-        gate_on = True
-    if not gate_on:
-        return Assertion("kb_gate", "info", False, False, "gate not declared on", "")
-    try:
-        approved = compiled_kb.approved_paths()
+        state = compiled_kb.gate_state(cheap=False)
     except Exception as exc:  # noqa: BLE001
         return Assertion("kb_gate", "required", True, False, str(exc),
                          "./arailctl pkb approve")
-    instantiated = len(approved) > 0
-    return Assertion(
-        "kb_gate", "required", True, instantiated,
-        detail="" if instantiated else "gate is on but nothing has ever been approved",
-        action="" if instantiated else "./arailctl pkb approve, or approve on /dac",
-    )
+
+    if state.get("state") == "off":
+        return Assertion("kb_gate", "required", False, False,
+                         "gate not declared on", "")
+
+    approved = int(state.get("approved_count", 0))
+    live = int(state.get("live_count", 0))
+    pending = int(state.get("pending_count", -1))
+
+    if approved == 0 and pending == 0:
+        # Nothing was ever approved AND nothing is waiting to be —
+        # there is no corpus to have a consent decision about yet.
+        return Assertion("kb_gate", "required", False, False,
+                         "no corpus to approve yet", "")
+
+    instantiated = live > 0
+    if instantiated:
+        detail = ""
+        action = ""
+    elif pending == -1:
+        detail = "gate is on and nothing has ever been approved (pending count unknown)"
+        action = "./arailctl pkb approve, or approve on /dac"
+    elif pending > 0:
+        detail = f"gate is on, nothing approved yet — {pending} page(s) await approval"
+        action = "./arailctl pkb approve, or approve on /dac"
+    else:
+        detail = "gate is on but nothing has ever been approved"
+        action = "./arailctl pkb approve, or approve on /dac"
+
+    return Assertion("kb_gate", "required", True, instantiated, detail, action)
 
 
 def check_embedding_provenance(**_kw) -> Assertion:
