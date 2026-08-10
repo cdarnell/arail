@@ -239,6 +239,29 @@ def check_knowledge_base() -> None:
         _record("compiled_kb_dangling", "info", True, f"skipped: {e}")
 
 
+def check_provisioning() -> None:
+    """The class check (sprints/2026-08-10-arail2-persistence-instantiated
+    §5): every declared mechanism names its own instantiation predicate.
+    "Declared and not instantiated" is always a finding here, never
+    silence — this is what would have caught defect A (the relational
+    store) and defect B (the vector backend) before either shipped."""
+    _section("Provisioning (declared vs. instantiated)")
+    try:
+        from arail import provisioning
+        from arail import config
+        assertions = provisioning.evaluate_all(
+            repo_root=os.getcwd(), data_dir=str(config.DATA_DIR))
+        for a in assertions:
+            mark = "OK" if not a.finding else ("MISSING" if a.declared else "off")
+            _p(f"  [{a.tier:<8}] {a.key:<22}: {mark}"
+               + (f" — {a.detail}" if a.detail else ""))
+            if a.finding and a.action:
+                _p(f"             fix: {a.action}")
+            _record(f"provisioning_{a.key}", a.tier, not a.finding, a.detail)
+    except Exception as e:  # noqa: BLE001
+        _p(f"  provisioning check failed: {type(e).__name__}: {e}")
+
+
 def check_components() -> None:
     _section("Components (installed package versions)")
     # importlib.metadata only — no subprocess. The portal's Admin "Check
@@ -320,6 +343,7 @@ def main(argv: list[str] | None = None) -> int:
     check_environment()
     check_models()
     check_knowledge_base()
+    check_provisioning()
     check_components()
     if args.updates:
         check_updates()
