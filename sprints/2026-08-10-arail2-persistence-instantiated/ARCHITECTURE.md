@@ -763,3 +763,85 @@ platform gate plus a filed ticket, Finding 2 is a call site reusing a shim that
 has already been through three review rounds. Two tickets to file: the
 OpenRC/`daemon_active` supervision gap, and (still open from REVIEW3) the
 CI-runnable driver path, which this very episode is the argument for.
+
+### Finding 3 — `kb_gate: MISSING` on a clean CI checkout: the predicate is under-scoped
+
+**Coordinator's read confirmed.** `check_kb_gate`
+(`src/arail/provisioning.py:162-186`) decides on `len(approved_paths()) > 0`
+alone and ignores `compiled_kb.gate_state()` entirely — even though QA-6 built
+that function's four states (`off` / `unbootstrapped` / `empty` / `populated`)
+to stop exactly this collapse. A lab with zero source documents and no World
+ever mounted reports identically to the operator's `ai` World with 351
+approvable pages and none approved.
+
+**Why this is not the severity-tuning I rejected for `relational_store`, and
+why "fix the workflow" is not available here.** The asymmetry is the whole
+ruling:
+
+- `relational_store` can be instantiated **unconditionally, by the machine** —
+  an empty schema decides nothing on the operator's behalf. So the fix was to
+  make `setup` create it (§10 Finding 2).
+- `kb_gate` cannot. Approving knowledge is a **consent decision**, and the
+  2026-08-09 compiled-kb-bootstrap sprint ruled that it must never happen
+  automatically. Making `blueprint-smoke.yml` approve something before calling
+  `doctor` would be CI fabricating consent — the precise thing that sprint
+  forbade. There is no workflow fix that isn't a policy violation.
+
+It follows that on a lab with **nothing that could be approved**, "not
+instantiated" is not a defect — it is the correct resting state. Reporting it
+as a required finding makes `doctor` un-greenable on any clean machine, which
+teaches operators to ignore it.
+
+**Ruling: fix the predicate, keep the tier.** Do not touch `required`; do not
+add a lifecycle marker. Use the `declared` term, which exists in `Assertion`
+for exactly this and makes `finding = declared and not instantiated` come out
+right on its own:
+
+| Gate condition | `declared` | `instantiated` | Result |
+|---|---|---|---|
+| gate off (`ARAIL_APPROVED_ONLY=off`) | False | — | not a finding (unchanged) |
+| no corpus: `approved_count + pending_count == 0` | **False** | — | **not-applicable, not a finding** |
+| corpus exists, nothing approved/live | True | False | **required finding — loud** |
+| anything approved and live | True | True | OK |
+
+The boundary the coordinator named is preserved by construction: the operator's
+351-approvable/0-approved World has `pending_count > 0`, so it stays `declared`
+and stays loudly degraded. A mounted World with unapproved pages cannot go
+quiet under this rule.
+
+Two constraints on the implementation:
+
+1. Call `gate_state(cheap=False)`. `cheap=True` returns `pending_count = -1`
+   ("not computed"), and a `-1` must be treated as **unknown ⇒ assume a corpus
+   exists ⇒ stay `required`**. Fail loud on ignorance, never quiet. `doctor` is
+   not a hot path; the tree walk is affordable.
+2. The `detail` string must distinguish the two zero states in words, not just
+   in the exit code — "no corpus to approve yet" vs "N pages await approval".
+
+In scope for this sprint: `provisioning.py` is this sprint's own §5 deliverable
+and this is a predicate correction inside it, not new surface.
+
+### Finding 4 — `stat -f` in `qa_db_seamless_driver.sh`: portable fix, agreed
+
+**No objection — the coordinator's call is right, and the contrast with
+Finding 1 is the reason.** `T3/daemon-a` was gated because the *product* is
+platform-gated at the same boundary and says so. Here the asserted property —
+a sibling instance's `secrets.env` is never read, written, or copied — is
+platform-independent and is a **security** invariant (CLAUDE.md: per-instance
+secrets are never shared or auto-copied). Gating it would make a security
+assertion vacuous on the platform most likely to run CI. `stat -f '%Sp %m'` is
+BSD; GNU wants `stat -c '%A %Y'`.
+
+One addition worth making while it is open: the driver should **assert its own
+`stat` invocation produced output** before comparing before/after. As written,
+the comparison is assembled from a `find -exec` pipeline, so a `stat` that
+errors still yields a non-empty string from the `shasum` half — the permission
+half of the check (that `0600` was preserved) can silently drop out while the
+assertion still appears to pass. That is this sprint's own defect class
+appearing for a third time, in a test. A one-line non-empty guard closes it.
+
+### Merge status (updated)
+
+Finding 3 blocks merge and is a small in-sprint predicate fix, not a follow-up
+sprint. Finding 4 blocks merge and is a straight portability fix. Neither
+requires re-opening the persistence design.
