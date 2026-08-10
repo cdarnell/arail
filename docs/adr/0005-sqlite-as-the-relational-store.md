@@ -18,10 +18,17 @@ related:
 
 # ADR-0005: SQLite as ARAIL's Relational Store
 
-**Status:** Proposed — awaiting ratification. Phase 2 implementation is in
-flight on `qukaizen/arail-2-declarative-persistence-819030`; this record
-exists so the decision is ratified *before* more code lands on it, not
-reverse-engineered from it afterward.
+**Status:** Accepted (ratified 2026-08-10). Written and reviewed while Phase
+2 was in flight on `qukaizen/arail-2-declarative-persistence-819030`,
+precisely so the decision would be ratified before more code landed on it
+rather than reverse-engineered from it afterward — that branch has since
+merged to `main` (#175, `7bc2c64`), so this ADR is ratifying a decision
+whose schema, `db.py`, and Atlas tooling are already live, not a proposal
+for future code. Ratification required the ADR to close its own gap first:
+`reset pkb` did not purge the PKB-derived `content_refs`/`entities` rows
+this ADR's binding constraint (below) says must not survive it — fixed in
+`scripts/reset.sh` (`reset_pkb()`) with `tests/test_reset_paths.py::test_reset_pkb_purges_pkb_derived_rows_from_arail_db`
+pinning the two against drifting apart again, same day as ratification.
 **Date:** 2026-08-08
 **Deciders:** QuKaiZen
 **Relates:** `sprints/2026-08-08-arail2-declarative-persistence/PHASE1_AUDIT.md`
@@ -202,8 +209,23 @@ on the dependency-cost argument alone.
 
 - One new engine to reason about. Mitigated by SQLite being stdlib
   (`import sqlite3`, no dependency added to `pyproject.toml`) and embedded —
-  no daemon, no port, no container, nothing for `setup.sh` to install. The
-  airgap posture is unaffected.
+  no daemon, no port, no container. The *running* lab's airgap posture is
+  unaffected: `db.py` opens a local file, nothing on a network port.
+- **A build-time dependency this ADR should not understate: Atlas.**
+  `spec/schema/schema.hcl` is compiled to SQL by the `atlas` binary
+  (`src/arail/dbspec/atlas.py`) — a third-party Go tool, installed via
+  `brew install ariga/tap/atlas` or `ARAIL_ATLAS_BIN`, not vendored, and not
+  yet wired into `scripts/setup.sh` on any platform. It runs on the
+  *developer's* machine for `./arailctl db plan/apply/migrate`, never on an
+  operator's running lab, so the airgap claim above still holds — but "no
+  dependency added" is true only of the runtime, and the ADR should say so
+  rather than let that line imply the whole decision is free. Since Atlas
+  v0.38, `atlas migrate lint` is additionally gated behind an Atlas Pro
+  login; without one it aborts non-zero without linting, and
+  `atlas.py:lint_migrations` degrades to a narrower local destructive-SQL
+  grep and labels itself as such. Track "install Atlas in `setup.sh`, or
+  document it as a maintainer-only tool" as follow-up; it is not a blocker
+  for this ADR, but it is a real line item, not a zero.
 - `foreign_keys=ON` is **per-connection** in SQLite and off by default. Every
   connection must set it or every FK cascade in the schema is silently lost.
   `db.py`'s `connect()` centralizes this; nothing may open the database

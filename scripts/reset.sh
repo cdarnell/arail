@@ -511,6 +511,33 @@ reset_pkb() {
     # the one-shot World prompt so the next boot offers the picker again.
     rm -f "${DATA_DIR}/world-mount.json" 2>/dev/null || true
     rm -f "${DATA_DIR}/.world-prompt-seen" 2>/dev/null || true
+    # ADR-0005: `<data_dir>/arail.db` sits OUTSIDE the tree this function
+    # just wiped, but two of its tables hold rows derived straight from PKB
+    # content — `content_refs` for the pkb_pages/wiki_nodes Lance datasets
+    # (both just deleted above) and the "document" entities migrate.py
+    # creates from them. Left behind, they're exactly what ADR-0002's
+    # "wipe the PKB = wipe memory" contract promises is gone, and
+    # `db doctor` would report them as orphaned content_refs (the #163
+    # shape) on top of that. Purge them here, in the same function that
+    # wipes the PKB, so the two can't drift apart the way ADR-0005 warned
+    # they would.
+    local db_file="${DATA_DIR}/arail.db"
+    if [[ -f "$db_file" ]]; then
+        if command -v sqlite3 >/dev/null 2>&1; then
+            if sqlite3 "$db_file" <<'SQL' >/dev/null 2>&1
+PRAGMA foreign_keys = ON;
+DELETE FROM content_refs WHERE lance_table IN ('pkb_pages', 'wiki_nodes');
+DELETE FROM entities WHERE kind = 'document';
+SQL
+            then
+                info "Purged PKB-derived rows (content_refs, document entities) from arail.db."
+            else
+                warn "could not purge PKB-derived rows from arail.db — it may still hold content_refs/entities for the KB just wiped."
+            fi
+        else
+            warn "sqlite3 not on PATH — arail.db may still hold PKB-derived rows (content_refs, document entities) for the KB just wiped."
+        fi
+    fi
     info "Knowledge base removed. Starter packs will re-seed on next ./arailctl start."
 }
 
