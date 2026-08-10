@@ -229,6 +229,43 @@ sib_after="$(find "$FAKE/lab/instances" -type f | LC_ALL=C sort)"
 [[ -f "$FAKE/lab/data/arail.db" ]] || fail "S8: root db was not created\n$OUT_START3"
 ok_scenario
 
+# ARCHITECTURE.md §10 Finding 4: portable content+permission+mtime
+# snapshot of every secrets.env under a root. `stat -f '%Sp %m'` (the
+# form this used to use) is BSD/macOS-only syntax — GNU stat (every
+# Linux CI runner) rejects it outright, which means the PERMISSION half
+# of S9's assertion (that 0600 survived) was silently vacuous on Linux:
+# `find -exec` still produced non-empty output from the shasum half even
+# though the stat half errored, so the overall snapshot string was
+# never empty and the comparison appeared to pass regardless. The
+# asserted property — a sibling's secrets.env is never read, written, or
+# copied (CLAUDE.md) — is a SECURITY invariant and platform-independent;
+# gating it away (the way T3/daemon-a's launchd scenarios legitimately
+# are, because that mechanism truly doesn't exist on Linux) would make a
+# security assertion vacuous on the platform most likely to run CI. Uses
+# python3's os.stat (identical mode/mtime semantics on every platform
+# this harness targets) instead of shelling out to a platform-specific
+# `stat` binary at all.
+_secrets_snapshot() {
+    python3 -c '
+import hashlib, os, stat, sys
+
+root = sys.argv[1]
+rows = []
+for dirpath, _dirnames, filenames in os.walk(root):
+    if "secrets.env" not in filenames:
+        continue
+    p = os.path.join(dirpath, "secrets.env")
+    st = os.stat(p)
+    digest = hashlib.sha256(open(p, "rb").read()).hexdigest()
+    rows.append(
+        f"{os.path.relpath(p, root)} {digest} "
+        f"{oct(stat.S_IMODE(st.st_mode))} {int(st.st_mtime)}"
+    )
+rows.sort()
+print("\n".join(rows))
+' "$1"
+}
+
 # ---------------------------------------------------------------------------
 # S9 (security, §7 test 34): no code path in this sprint reads, writes or
 # creates a secrets.env anywhere. Plant one per instance and assert its
@@ -243,10 +280,21 @@ for slug in "${SLUGS[@]}"; do
 done
 printf 'ANTHROPIC_API_KEY=sk-root\n' > "$FAKE/lab/data/secrets.env"
 chmod 0600 "$FAKE/lab/data/secrets.env"
-sec_before="$(find "$FAKE" -name secrets.env -exec shasum -a 256 {} \; -exec stat -f '%Sp %m' {} \; | LC_ALL=C sort)"
+sec_before="$(_secrets_snapshot "$FAKE")"
+# ARCHITECTURE.md §10 Finding 4's required addition: assert the snapshot
+# itself actually produced output BEFORE comparing before/after. The old
+# find-exec pipeline could have its stat half fail silently while the
+# shasum half still yielded a non-empty string — the exact "this sprint's
+# own defect class inside a test" pattern found a third time. A snapshot
+# that comes back empty here means the FIXTURE (7 secrets.env files just
+# planted above) is broken, not that the property being checked holds.
+[[ -n "$sec_before" ]] \
+    || fail "S9 setup: secrets snapshot came back empty — expected 7 planted secrets.env files"
 _run_install "$FAKE" --only verify
 _run_status "$FAKE" --json
-sec_after="$(find "$FAKE" -name secrets.env -exec shasum -a 256 {} \; -exec stat -f '%Sp %m' {} \; | LC_ALL=C sort)"
+sec_after="$(_secrets_snapshot "$FAKE")"
+[[ -n "$sec_after" ]] \
+    || fail "S9: post-install/status secrets snapshot came back empty — a stat/hash invocation may have failed silently rather than the files genuinely vanishing"
 [[ "$sec_before" == "$sec_after" ]] \
     || fail "S9: a secrets.env changed content, permissions or mtime:\n$(diff <(echo "$sec_before") <(echo "$sec_after"))"
 echo "$OUT" | grep -qi 'sk-do-not-touch\|sk-root' \
