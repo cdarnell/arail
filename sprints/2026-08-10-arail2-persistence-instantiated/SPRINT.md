@@ -126,9 +126,64 @@ instances and waiting for a third.
 | Phase | Subagent | Artifact | Status | Verdict |
 |---|---|---|---|---|
 | think | visionary | VISION.md | skipped | — |
-| plan | architect (design) | ARCHITECTURE.md | in progress | — |
-| build | builder | BUILD_LOG.md | pending | — |
-| review | architect (review) | REVIEW.md | pending | — |
+| plan | architect (design) | ARCHITECTURE.md | done (4f8ae97) | A and B ruled TWO defects, one sprint |
+| build | builder | BUILD_LOG.md | done (12 commits) | 101 tests pass, 1 skip |
+| review r1 | architect (review) | REVIEW.md | done (6328112) | **BLOCK** — 3 findings |
+| build r2 | builder | BUILD_LOG.md | done | BLOCK-1/2/3 + ASK-1 fixed |
+| review r2 | architect (review) | REVIEW2.md | done (e7efcc5) | **BLOCK** — 2 new findings |
+| build r3 | builder | BUILD_LOG.md | done | BLOCK-4/5 fixed |
+| review r3 | architect (review) | REVIEW3.md | done (0705234) | **WEAK_PASS** → qa |
+| test r1 | qa | TEST_REPORT.md | done (d161ac3) | **FAIL** — 5 findings + ASK-6 real |
+| build r4 | builder | BUILD_LOG.md | done | QA-1/5/6/7 + ASK-6 fixed |
+| test r2 | qa | TEST_REPORT.md | done (8dd65a2) | **FAIL** — QA-12 regression |
+| build r5 | builder | BUILD_LOG.md | done | QA-12/10/14 fixed; QA-11/13 filed |
+| test r3 | qa | TEST_REPORT.md | done (8c7ba5e) | **WEAK_PASS — ship it** |
+| ci | builder | db-ensure-ci.yml | done (4f0f527) | last merge blocker closed |
+| ship | — | PR | awaiting operator | — |
+
+**Totals:** 40 commits, 40 files, +9784/−18. Zero `lab/` contamination across all five
+build rounds. Sprint scope 742 passed / 3 xfailed; full suite 5363 passed / 62 failed
+(all 62 pre-existing on `main`; round 3's count was 5344 / 68, so all six sprint-owned
+failures are gone).
+
+## Defect chronology (the record worth keeping)
+
+| # | Found by | What |
+|---|---|---|
+| BLOCK-1 | review r1 | Lossy classifier was a 6-pattern denylist claiming to fail closed. Four executable bypasses, incl. `ALTER TABLE t DROP c` — the idiomatic short form `start` would have applied at boot. |
+| BLOCK-2 | review r1 | Migrations executed with zero integrity check on first apply; the justification (Atlas digest "undocumented") was refuted by reproducing `atlas.sum` in three lines. |
+| BLOCK-3 | review r1 | `status.sh`'s DB collector ended in `2>/dev/null \|\| echo '{}'` — found live by accident, the sprint's own thesis violated three files from `provisioning.py`. |
+| BLOCK-4 | review r2 | `INSERT INTO … ON CONFLICT DO UPDATE SET` classified SAFE-FORWARD. Structural lesson: a leading keyword does not bound what a statement does. |
+| BLOCK-5 | review r2 | Pre-existing scenario T10 regressed 0→3 undetected. |
+| QA-1 | qa r1 | `apply=False` was not write-free — WAL `mode=ro` open materialized `-wal`/`-shm` on 3.53.4, failed outright on 3.51.0. Opposite symptoms per interpreter. |
+| QA-8 | qa r1 | **The CLI drivers were testing the wrong source tree** — `make_fake_venv` resolved to `main`, which has no `ensure.py`. Every green driver result was meaningless. |
+| QA-12 | qa r2 | The QA-1 fix regressed a 0-byte `arail.db` from self-healing to permanently wedged, with no verb able to clear it. |
+| QA-10 | qa r2 | A predicate returning the wrong *type* silenced every other provisioning check. |
+
+## What is taken on trust at merge (QA's own list)
+
+1. Nothing reads `arail.db` at runtime — proven correct and honest, not proven useful.
+2. The win condition's **positive** half rests on manual measurement; no committed test.
+3. macOS/APFS only, two SQLite versions. The F17 closure is specifically an APFS
+   write-atomicity claim.
+4. No clean-machine run — `install.sh`/`start.sh` only via the fake-repo harness.
+5. `doctor`'s exit code end-to-end (no `doctor_driver.sh`).
+6. `.arail_ensure_state.json` is written by everything and read by nothing — this
+   sprint's own defect class, inside the sprint that named it.
+
+## Filed, not fixed
+
+QA-11, QA-13, QA-15, QA-16, `make_fake_venv` hardening, and the §8 debt entries — all in
+`sprints/BACKLOG.md`. The three live ones are `xfail(strict=True)` so the suite is green
+at merge and each flips loudly when closed.
+
+## Named fragility
+
+`_read_user_version_readonly` is 5 lines of code under 45 lines of docstring, and the
+docstring is load-bearing: it encodes three near-misses we actually hit (read through
+SQLite → reopens QA-1; drop the `close()` → staleness; treat empty as corrupt → the
+permanent wedge). A maintainer reading only the code will get it wrong in whichever
+direction they push.
 | test | qa | TEST_REPORT.md | pending | — |
 | ship | — | PR | pending | — |
 
