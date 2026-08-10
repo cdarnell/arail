@@ -16,39 +16,68 @@ migration, never invokes ``atlas``, never runs codegen, and never touches
 Lance reconciliation or the 1.x->2.0 import — those stay behind their own
 explicit verbs (§4.2 of ARCHITECTURE.md).
 
-The safe/lossy line (§4.2)
----------------------------
-SAFE-FORWARD  A checked-in migration, index > current ``user_version``, whose
-              SQL contains no ``DROP TABLE``/``DROP INDEX``/``DROP COLUMN``/
-              ``DELETE``/``UPDATE``/rename-based table-rebuild pattern.
-              Applied automatically when ``apply=True``.
-LOSSY         Any pending migration containing one of the statements above.
-              Never applied by this module, ever — ``state="blocked"``,
-              naming ``./arailctl db apply --allow-destructive``.
-The classifier is a static regex over the raw SQL text. It intentionally
-does not distinguish a real ``DROP TABLE`` from one that only appears inside
-a SQL comment or a string literal — a false positive (classifying safe SQL
-as lossy) is acceptable; a false negative (an actually-destructive statement
-slipping through as safe) is not. It fails closed, never open (test 5).
+The safe/lossy line (§4.2) — ALLOWLIST, not a denylist (REVIEW.md BLOCK-1)
+---------------------------------------------------------------------------
+A denylist cannot fail closed: "fail closed" means "anything I cannot
+prove safe is LOSSY," and a denylist's default is the opposite — anything
+it doesn't happen to name is (wrongly) SAFE-FORWARD. An earlier version of
+this module was exactly that (six regex patterns) and had four verified
+executable bypasses: ``ALTER TABLE t DROP c`` (no ``COLUMN`` keyword —
+the idiomatic short form, and the single most likely destructive
+migration anyone actually writes), ``REPLACE INTO``, ``INSERT OR REPLACE
+INTO``, ``UPDATE OR REPLACE``, plus ``DROP VIEW``/``DROP TRIGGER``. All
+four are real, data-destroying SQLite that the denylist waved through.
 
-Divergence detection
----------------------
-"Hash matches the ledger" (§4.2) is implemented as *self-consistency*, not
-literal parity with Atlas's own (undocumented, binary-only) migration
-digest algorithm: the first time this module applies a migration file, it
-records a plain sha256 of that file's bytes in a JSON sidecar next to the
-database (``<data_dir>/.arail_ensure_state.json`` — the same pattern the
+The classifier now works the other way. Every statement in a migration
+file (split via ``_split_statements``) is checked against an explicit
+ALLOWLIST of leading keywords — ``CREATE TABLE``, ``CREATE [UNIQUE]
+INDEX``, ``CREATE VIEW``, ``CREATE TRIGGER``, ``ALTER TABLE … ADD
+COLUMN``, and bare ``INSERT INTO`` (no ``OR REPLACE``/``OR IGNORE``/any
+other modifier between ``INSERT`` and ``INTO``) — and classified
+SAFE-FORWARD only if it matches. **Everything else, including anything
+this classifier does not recognize at all, is LOSSY.** A statement
+prefixed by a comment (so the allowlist regex doesn't match at position
+0) is also LOSSY — a false positive is acceptable; a false negative is
+not, and this now actually holds (test 5 exercises the four verified
+bypasses above plus additional adversarial cases, all correctly LOSSY).
+A migration file is SAFE-FORWARD only if every one of its statements is;
+one non-allowlisted statement anywhere makes the whole file LOSSY.
+
+Ledger verification (§4.2) — REQUIRED before executing anything (BLOCK-2)
+---------------------------------------------------------------------------
+Before any migration's SQL is executed (``apply=True``) — and reported
+by ``apply=False`` too, so ``status``/``doctor`` catch it as early as
+``start`` would — every committed migration file in
+``spec/schema/migrations/`` is verified against ``spec/schema/migrations/
+atlas.sum``'s own per-file hash. Atlas's digest is **not** undocumented
+or binary-only, contrary to an earlier draft of this module's reasoning:
+it is ``base64(sha256(filename_bytes + file_content_bytes))``, reproduced
+here in pure Python with no ``atlas`` binary (verified byte-for-byte
+against the real ``atlas.sum`` in this repo). A file missing from the
+ledger, or whose hash disagrees with what's recorded, makes the whole
+call ``state="diverged"`` and executes zero statements — this is the
+actual precondition for auto-executing SQL at boot, not a follow-up.
+
+This is a *second*, complementary check to the sidecar below, not a
+replacement for it: ``atlas.sum`` only proves a file matches what was
+committed to *this checkout*; it says nothing about whether the file
+this DB already applied is the same bytes it applied last time (a
+tampered-then-reverted file, or a DB moved between checkouts at
+different commits, could match today's ``atlas.sum`` while having
+silently changed what got executed against this specific database).
+
+Post-apply divergence (the sidecar)
+-------------------------------------
+The first time this module applies a migration file, it records a plain
+sha256 of that file's bytes in a JSON sidecar next to the database
+(``<data_dir>/.arail_ensure_state.json`` — the same pattern the
 vector-index provenance sidecar already uses elsewhere in this codebase).
-Every later call re-hashes the file and compares against what it recorded.
-A mismatch is DIVERGED. This catches "someone edited an already-applied
-migration file" without depending on the ``atlas`` binary (Assumption 1)
-or adding an unspecced table to the SQLite schema (Assumption 4's
-fallback would require adding a spec'd table; a sidecar file avoids that
-entirely). Cross-checking against ``atlas.sum``'s own hash format is
-explicitly out of scope here and is covered instead by the dev-only
-"atlas schema diff" test (test 4) gated on the ``atlas`` binary being
-present — see the "Architect feedback required" note in this sprint's
-BUILD_LOG.md.
+Every later call re-hashes the file and compares against what it
+recorded. A mismatch is DIVERGED. This catches "someone edited an
+already-applied migration file" — a fact about *this database's own
+history* that ``atlas.sum`` alone cannot express, since ``atlas.sum``
+only ever describes the current state of the checkout, not what a given
+database has already executed.
 
 Write discipline (contract, §4.1)
 ----------------------------------
@@ -63,6 +92,7 @@ before/after).
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import hashlib
 import json
@@ -116,7 +146,8 @@ def _apply_lock(data_dir: Path):
             finally:
                 fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
 
-__all__ = ["EnsureReport", "ensure_db", "classify_migration", "MIGRATION_NAME_RE"]
+__all__ = ["EnsureReport", "ensure_db", "classify_migration", "classify_statement",
+          "MIGRATION_NAME_RE", "DEFAULT_SPEC_DIR"]
 
 SCHEMA = "arail.db-ensure/v1"
 
@@ -126,12 +157,44 @@ SCHEMA = "arail.db-ensure/v1"
 MIGRATION_NAME_RE = re.compile(r"^\d{14}_[a-z0-9_]+\.sql$")
 
 _SIDECAR_NAME = ".arail_ensure_state.json"
+_ATLAS_SUM_NAME = "atlas.sum"
 
-_LOSSY_RE = re.compile(
-    r"(\bDROP\s+TABLE\b|\bDROP\s+INDEX\b|\bDROP\s+COLUMN\b|\bDELETE\s+FROM\b|"
-    r"\bUPDATE\s+\S+\s+SET\b|\bALTER\s+TABLE\s+\S+\s+RENAME\b)",
+# ASK-1: resolved from the installed package location, not CWD — a caller
+# with the wrong working directory (doctor.check_provisioning passes
+# repo_root=os.getcwd()) must not get a silent, non-degrading
+# "unavailable" on a perfectly healthy database. Every current shell
+# caller happens to `cd "$REPO_ROOT"` first, which made this latent
+# rather than live, but "latent" is not "safe."
+DEFAULT_SPEC_DIR = Path(__file__).resolve().parents[3] / "spec"
+
+# BLOCK-1: an ALLOWLIST, not a denylist — see the module docstring for why
+# a denylist cannot fail closed. A statement is SAFE-FORWARD only if its
+# leading keywords match one of these; anything else, including anything
+# unrecognized, is LOSSY.
+_ALLOWLIST_RE = re.compile(
+    r"^(CREATE\s+TABLE\b"
+    r"|CREATE\s+(UNIQUE\s+)?INDEX\b"
+    r"|CREATE\s+VIEW\b"
+    r"|CREATE\s+TRIGGER\b"
+    r"|ALTER\s+TABLE\s+\S+\s+ADD\s+COLUMN\b"
+    r"|INSERT\s+INTO\b)",
     re.IGNORECASE,
 )
+
+# Atlas's own generated migrations prefix nearly every statement with an
+# explanatory `-- comment` line (see spec/schema/migrations/*.sql) — a
+# normal, expected, non-adversarial form, not obfuscation. Stripping ONLY
+# unambiguous leading SQL comment forms (line comments to end-of-line,
+# block comments) before the allowlist match lets real committed
+# migrations classify correctly without reopening BLOCK-1: SQL comments
+# cannot be "escaped" early (a `--` line comment always runs to the next
+# newline; a `/* */` block comment always runs to its own close), so
+# there is no way to smuggle executable SQL into what this strips.
+_LEADING_COMMENT_RE = re.compile(r"^(\s*(--[^\n]*(\n|$)|/\*.*?\*/))+", re.DOTALL)
+
+
+def _strip_leading_comments(stmt: str) -> str:
+    return _LEADING_COMMENT_RE.sub("", stmt).strip()
 
 
 @dataclass(frozen=True)
@@ -150,12 +213,37 @@ class EnsureReport:
     action: str
 
 
+def classify_statement(stmt: str) -> str:
+    """"SAFE-FORWARD" or "LOSSY" for ONE statement (already stripped of the
+    trailing ``;`` by ``_split_statements``). Leading SQL comments are
+    stripped first (see ``_strip_leading_comments`` — a normal, non-
+    adversarial form Atlas's own generated migrations use on nearly every
+    statement); what remains is allowlist-matched. A statement that is
+    ALL comment (nothing left after stripping) is SAFE-FORWARD — there is
+    no executable SQL in it, so nothing to be unsafe about. Anything else
+    that doesn't match the allowlist — including a statement this
+    classifier does not recognize at all — is LOSSY. Fails closed: a
+    false positive (safe SQL called LOSSY) is acceptable, a false
+    negative (destructive SQL called SAFE-FORWARD) is not (test 5)."""
+    remainder = _strip_leading_comments(stmt)
+    if not remainder:
+        return "SAFE-FORWARD"
+    if _ALLOWLIST_RE.match(remainder):
+        return "SAFE-FORWARD"
+    return "LOSSY"
+
+
 def classify_migration(sql_text: str) -> str:
-    """"SAFE-FORWARD" or "LOSSY". Fails closed (test 5): a classifier that
-    cannot prove a statement is safe must call it LOSSY, never the reverse.
-    """
-    if _LOSSY_RE.search(sql_text):
-        return "LOSSY"
+    """"SAFE-FORWARD" iff EVERY statement in the file is; one LOSSY
+    statement anywhere makes the whole migration LOSSY. A file with no
+    statements at all (blank/comments-only) is SAFE-FORWARD — there is
+    nothing to execute, so nothing to be unsafe about."""
+    statements = _split_statements(sql_text)
+    if not statements:
+        return "SAFE-FORWARD"
+    for stmt in statements:
+        if classify_statement(stmt) == "LOSSY":
+            return "LOSSY"
     return "SAFE-FORWARD"
 
 
@@ -200,6 +288,71 @@ def _file_hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _atlas_file_hash(path: Path) -> str:
+    """Atlas's OWN per-file hash (REVIEW.md BLOCK-2): ``h1:`` +
+    base64(sha256(filename_bytes + content_bytes)). Reproduced in pure
+    Python, no ``atlas`` binary — verified byte-for-byte against this
+    repo's real ``atlas.sum``. Contrary to an earlier draft of this
+    module, this is not undocumented or binary-only."""
+    digest = hashlib.sha256(path.name.encode("utf-8") + path.read_bytes()).digest()
+    return "h1:" + base64.standard_b64encode(digest).decode("ascii")
+
+
+def _parse_atlas_sum(migrations_dir: Path):
+    """dict[filename -> "h1:..."] from atlas.sum's per-file lines, or None
+    if the file is missing or malformed — either of which means "cannot
+    verify," which _verify_ledger treats as a hard no, not an assumption
+    of safety."""
+    path = migrations_dir / _ATLAS_SUM_NAME
+    if not path.is_file():
+        return None
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return None
+    if not lines:
+        return None
+    entries: dict = {}
+    # First line is the ledger's own overall directory hash — not verified
+    # here (this module only needs per-file provenance to decide what's
+    # safe to execute); every remaining line is "<filename> h1:<hash>".
+    for line in lines[1:]:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.rsplit(" ", 1)
+        if len(parts) != 2:
+            return None
+        name, h = parts
+        entries[name] = h
+    return entries
+
+
+def _verify_ledger(migrations_dir: Path, files) -> tuple:
+    """BLOCK-2: verify every file in `files` against atlas.sum's committed
+    per-file hash BEFORE any of their SQL is ever executed. Returns
+    (ok, detail). ok=False on: atlas.sum missing/unparseable, a file
+    absent from the ledger, or a hash mismatch — any of which means we
+    cannot prove the file on disk is what was committed, so nothing gets
+    auto-applied. This is a precondition for auto-execution, not a
+    follow-up: the sidecar (see below) only ever proves a file matches
+    what THIS database already applied — it verifies nothing on first
+    apply, which is exactly the fresh-clone case this sprint serves."""
+    entries = _parse_atlas_sum(migrations_dir)
+    if entries is None:
+        return False, (f"no readable {migrations_dir / _ATLAS_SUM_NAME} — "
+                       f"cannot verify the migration ledger")
+    for f in files:
+        expected = entries.get(f.name)
+        if expected is None:
+            return False, f"{f.name} is not listed in atlas.sum"
+        actual = _atlas_file_hash(f)
+        if actual != expected:
+            return False, (f"{f.name} does not match atlas.sum "
+                           f"(expected {expected}, got {actual})")
+    return True, ""
+
+
 def _read_user_version_readonly(db_path: Path) -> int:
     """Open strictly read-only (``mode=ro``) — never creates the file, never
     writes a byte, even a ``-wal``/``-shm`` sidecar."""
@@ -226,7 +379,9 @@ def _load_spec_meta(spec_dir: Path):
 
 def ensure_db(data_dir, *, apply: bool = False, spec_dir=None) -> EnsureReport:
     data_dir = Path(data_dir)
-    spec_dir = Path(spec_dir) if spec_dir is not None else Path("spec")
+    # ASK-1: resolved from the package location by default, never CWD —
+    # see DEFAULT_SPEC_DIR's own comment.
+    spec_dir = Path(spec_dir) if spec_dir is not None else DEFAULT_SPEC_DIR
     migrations_dir = spec_dir / "schema" / "migrations"
     db_path = dbmod.database_path(data_dir)
     present = db_path.exists()
@@ -254,6 +409,18 @@ def ensure_db(data_dir, *, apply: bool = False, spec_dir=None) -> EnsureReport:
         return _report(
             state="unavailable",
             detail=f"no eligible migration files in {migrations_dir}",
+        )
+
+    # BLOCK-2: verify EVERY committed migration against atlas.sum BEFORE
+    # any of them is executed — reported here (apply=False, so status/
+    # doctor catch it too), not just gated inside the apply=True loop.
+    # A tampered or unlisted file makes the whole call diverged, zero
+    # statements ever executed, regardless of apply=.
+    ledger_ok, ledger_detail = _verify_ledger(migrations_dir, migrations)
+    if not ledger_ok:
+        return _report(
+            state="diverged", detail=ledger_detail,
+            action="./arailctl db plan",
         )
 
     # Read the current cursor without ever creating the file.
@@ -346,57 +513,67 @@ def _apply_locked(conn, data_dir, migrations, total, present,
     cur_version = int(conn.execute("PRAGMA user_version").fetchone()[0])
     sidecar = _load_sidecar(data_dir)
     applied: list = []
-    if True:
-        for m in migrations[cur_version:total]:
-            sql_text = m.read_text()
-            if classify_migration(sql_text) == "LOSSY":
-                break  # never auto-applied — stop, leave it (and everything
-                       # after it) pending.
-            statements = _split_statements(sql_text)
-            next_version = cur_version + 1
-            try:
-                with dbmod.transaction(conn):
-                    for stmt in statements:
-                        conn.execute(stmt)
-                    conn.execute(f"PRAGMA user_version = {next_version}")
-            except sqlite3.Error as exc:
-                # F2: per-file transaction rolled back; user_version stays
-                # at the last fully-applied migration.
-                return _report(
-                    state="blocked", version=cur_version, applied=applied,
-                    pending=[x.name for x in migrations[cur_version:total]],
-                    detail=f"{m.name} failed to apply: {exc}",
-                    action="./arailctl doctor",
-                )
-            sidecar[m.name] = _file_hash(m)
-            _save_sidecar(data_dir, sidecar)
-            applied.append(m.name)
-            cur_version = next_version
+    for m in migrations[cur_version:total]:
+        sql_text = m.read_text()
+        if classify_migration(sql_text) == "LOSSY":
+            break  # never auto-applied — stop, leave it (and everything
+                   # after it) pending.
+        statements = _split_statements(sql_text)
+        next_version = cur_version + 1
+        try:
+            with dbmod.transaction(conn):
+                for stmt in statements:
+                    conn.execute(stmt)
+                conn.execute(f"PRAGMA user_version = {next_version}")
+        except sqlite3.Error as exc:
+            # F2: per-file transaction rolled back; user_version stays
+            # at the last fully-applied migration.
+            return _report(
+                state="blocked", version=cur_version, applied=applied,
+                pending=[x.name for x in migrations[cur_version:total]],
+                detail=f"{m.name} failed to apply: {exc}",
+                action="./arailctl doctor",
+            )
+        sidecar[m.name] = _file_hash(m)
+        _save_sidecar(data_dir, sidecar)
+        applied.append(m.name)
+        cur_version = next_version
 
-        pending_now = [x.name for x in migrations[cur_version:total]]
+    pending_now = [x.name for x in migrations[cur_version:total]]
 
-        if applied and spec_version:
+    # ASK-5: recording the applied spec version is skipped, silently, when
+    # the spec failed to load (spec_version == 0, _load_spec_meta's
+    # failure sentinel) — a DB could otherwise reach state="created" with
+    # an EMPTY schema_version table, which dbmod.applied_version() reads
+    # as "never applied." Report it instead of succeeding quietly.
+    record_version_skipped = False
+    if applied:
+        if spec_version:
             dbmod.record_version(conn, spec_version, spec_sha256, _now_iso())
-
-        if pending_now:
-            # Stopped early because the next pending migration is LOSSY.
-            state = "blocked"
-            detail = (f"{migrations[cur_version].name} contains statements "
-                      f"that can remove or rewrite data")
-            action = "./arailctl db apply --allow-destructive"
-        elif applied:
-            state = "created" if not present else "updated"
-            detail = ""
-            action = ""
         else:
-            state = "ok"
-            detail = ""
-            action = ""
+            record_version_skipped = True
 
-        return _report(
-            state=state, version=cur_version, applied=applied,
-            pending=pending_now, detail=detail, action=action,
-        )
+    if pending_now:
+        # Stopped early because the next pending migration is LOSSY.
+        state = "blocked"
+        detail = (f"{migrations[cur_version].name} contains statements "
+                  f"that can remove or rewrite data")
+        action = "./arailctl db apply --allow-destructive"
+    elif applied:
+        state = "created" if not present else "updated"
+        detail = ("schema applied, but the spec failed to load — "
+                  "schema_version was not recorded" if record_version_skipped
+                  else "")
+        action = "./arailctl doctor" if record_version_skipped else ""
+    else:
+        state = "ok"
+        detail = ""
+        action = ""
+
+    return _report(
+        state=state, version=cur_version, applied=applied,
+        pending=pending_now, detail=detail, action=action,
+    )
 
 
 def _report_line(report: "EnsureReport") -> str:

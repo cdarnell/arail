@@ -80,6 +80,12 @@ def test_apply_true_idempotent(tmp_path: Path):
 
 
 # ── 5. lossy classifier, table-driven ──────────────────────────────────────
+# REVIEW.md BLOCK-1: the classifier is now an ALLOWLIST, not a denylist.
+# This table includes the four verified-executable bypasses the review
+# found against the old denylist, plus DROP VIEW/TRIGGER, plus a
+# deliberately unparseable/unrecognized statement — every one of them
+# must be LOSSY, because the allowlist's default for anything it doesn't
+# recognize is LOSSY (fail closed), not SAFE-FORWARD.
 
 @pytest.mark.parametrize("sql,expected", [
     ("DROP TABLE x;", "LOSSY"),
@@ -91,14 +97,48 @@ def test_apply_true_idempotent(tmp_path: Path):
     ("CREATE TABLE x (id text);", "SAFE-FORWARD"),
     ("CREATE INDEX idx_x ON x (id);", "SAFE-FORWARD"),
     ("ALTER TABLE x ADD COLUMN y text;", "SAFE-FORWARD"),
-    # Fail-closed cases: a lossy statement inside a comment or a string
-    # literal is ALLOWED to false-positive as LOSSY (never allowed to
-    # false-negative as safe).
-    ("-- DROP TABLE x;\nCREATE TABLE y (id text);", "LOSSY"),
-    ("CREATE TABLE y (id text, note text DEFAULT 'DROP TABLE x');", "LOSSY"),
+    # REVIEW.md BLOCK-1's four verified-executable bypasses of the OLD
+    # denylist — every one must be LOSSY under the allowlist.
+    ("ALTER TABLE worlds DROP slug;", "LOSSY"),               # no COLUMN keyword — the idiomatic short form
+    ("UPDATE OR REPLACE worlds SET status=0;", "LOSSY"),
+    ("REPLACE INTO worlds VALUES (1);", "LOSSY"),
+    ("INSERT OR REPLACE INTO worlds VALUES (1);", "LOSSY"),
+    # Plus the review's other named adversarial cases.
+    ("DROP VIEW v1;", "LOSSY"),
+    ("DROP TRIGGER t1;", "LOSSY"),
+    # A statement the allowlist does not recognize at all — fails closed
+    # by default, not by pattern-matching a known-bad form.
+    ("PRAGMA foreign_keys = OFF;", "LOSSY"),
+    ("VACUUM;", "LOSSY"),
+    ("this is not valid sql at all", "LOSSY"),
+    # A leading comment (Atlas's own generated migrations use this on
+    # nearly every statement — a normal, expected, non-adversarial form)
+    # is stripped before the allowlist match, so a genuinely safe
+    # commented statement classifies correctly...
+    ("-- Create table x\nCREATE TABLE x (id text);", "SAFE-FORWARD"),
+    # ...but a comment cannot be used to smuggle danger past the
+    # allowlist: the DROP TABLE text inside a comment never executes as
+    # SQL, so this remains correctly SAFE-FORWARD (there is no destructive
+    # SQL here to have missed) — a precise allowlist match, not a false
+    # positive, and not a bypass either.
+    ("-- DROP TABLE x\nCREATE TABLE y (id text);", "SAFE-FORWARD"),
+    # A lossy keyword inside a STRING LITERAL default value is likewise
+    # not executable SQL — genuinely safe, correctly SAFE-FORWARD.
+    ("CREATE TABLE y (id text, note text DEFAULT 'DROP TABLE x');", "SAFE-FORWARD"),
 ])
 def test_lossy_classifier_table_driven(sql, expected):
     assert classify_migration(sql) == expected
+
+
+def test_real_baseline_migration_classifies_safe_forward():
+    """The actual committed baseline — every statement is a comment-
+    prefixed CREATE TABLE/CREATE [UNIQUE] INDEX, Atlas's own generated
+    form — must still classify SAFE-FORWARD under the new allowlist, or
+    nothing would ever auto-apply."""
+    from arail.dbspec.ensure import classify_migration
+    text = (REPO_SPEC_DIR / "schema" / "migrations"
+           / "20260808155711_baseline.sql").read_text()
+    assert classify_migration(text) == "SAFE-FORWARD"
 
 
 # ── 6. ahead ────────────────────────────────────────────────────────────────
@@ -159,6 +199,18 @@ def _copy_spec(dest: Path) -> None:
 
 # ── 8. failure isolation ────────────────────────────────────────────────────
 
+def _append_atlas_sum_entry(migrations_dir: Path, path: Path) -> None:
+    """Ledger verification (BLOCK-2) now runs before ANY migration in the
+    directory is even considered, so a test that adds a synthetic
+    migration file must also add its real entry to the copied atlas.sum —
+    using ensure.py's OWN hash function, not a reimplementation, so this
+    helper can never silently drift from what the module actually
+    checks."""
+    from arail.dbspec.ensure import _atlas_file_hash
+    with open(migrations_dir / "atlas.sum", "a") as f:
+        f.write(f"{path.name} {_atlas_file_hash(path)}\n")
+
+
 def test_failure_isolation_bad_migration(tmp_path: Path):
     d = tmp_path / "data"
     d.mkdir()
@@ -166,12 +218,18 @@ def test_failure_isolation_bad_migration(tmp_path: Path):
     _copy_spec(spec_copy)
     migrations_dir = spec_copy / "schema" / "migrations"
 
-    # Migration 2: syntactically broken SQL.
-    (migrations_dir / "20260808155712_broken.sql").write_text(
-        "CREATE TBLE this_is_not_valid_sql (;")
+    # Migration 2: passes classification (a real "CREATE TABLE" leading
+    # keyword — allowlisted) but is malformed SQL that sqlite3 rejects at
+    # EXECUTION time — this is what test 8/F2 (per-file transaction
+    # rollback on an execution error) actually needs, distinct from
+    # BLOCK-1's classification gate.
+    broken = migrations_dir / "20260808155712_broken.sql"
+    broken.write_text("CREATE TABLE this_is_not_valid_sql (;")
+    _append_atlas_sum_entry(migrations_dir, broken)
     # Migration 3: would otherwise be fine.
-    (migrations_dir / "20260808155713_third.sql").write_text(
-        "CREATE TABLE third_table (id text);")
+    third = migrations_dir / "20260808155713_third.sql"
+    third.write_text("CREATE TABLE third_table (id text);")
+    _append_atlas_sum_entry(migrations_dir, third)
 
     report = ensure_db(d, apply=True, spec_dir=spec_copy)
 
@@ -295,3 +353,128 @@ def test_unavailable_when_no_migrations_dir(tmp_path: Path):
     report = ensure_db(d, apply=False, spec_dir=empty_spec)
     assert report.state == "unavailable"
     assert not (d / "arail.db").exists()
+
+
+# ── BLOCK-2: ledger verification against atlas.sum, before execution ──────
+
+def test_atlas_sum_hash_matches_atlas_own_algorithm():
+    """The hash function itself: b64(sha256(filename_bytes + content_bytes)),
+    verified byte-for-byte against the real committed atlas.sum — this is
+    the exact reproduction the review demanded, pinned as a regression
+    test so it can never silently drift."""
+    from arail.dbspec.ensure import _atlas_file_hash
+    mig = REPO_SPEC_DIR / "schema" / "migrations" / "20260808155711_baseline.sql"
+    sums = (REPO_SPEC_DIR / "schema" / "migrations" / "atlas.sum").read_text().splitlines()
+    recorded = dict(line.split(" ", 1) for line in sums[1:] if line.strip())
+    assert _atlas_file_hash(mig) == recorded[mig.name]
+
+
+def test_fresh_clone_verifies_ledger_before_any_execution(tmp_path: Path):
+    """BLOCK-2's core claim: on a fresh clone (no sidecar has ever existed),
+    ensure_db(apply=True) must verify the migration against atlas.sum
+    BEFORE executing it — not "having verified nothing at all." Tampering
+    the migration file before its very FIRST apply (no sidecar, no prior
+    history) must still block it."""
+    d = tmp_path / "data"
+    d.mkdir()
+    spec_copy = tmp_path / "spec"
+    _copy_spec(spec_copy)
+    mig = next((spec_copy / "schema" / "migrations").glob("*.sql"))
+    mig.write_text(mig.read_text() + "\n-- tampered before first apply\n")
+
+    report = ensure_db(d, apply=True, spec_dir=spec_copy)
+
+    assert report.state == "diverged"
+    assert report.applied == []
+    assert not (d / "arail.db").exists()
+
+
+def test_migration_absent_from_ledger_is_diverged(tmp_path: Path):
+    """A migration file that exists on disk but was never added to
+    atlas.sum — cannot be proven to match what was committed — blocks
+    the whole apply, not just that one file."""
+    d = tmp_path / "data"
+    d.mkdir()
+    spec_copy = tmp_path / "spec"
+    _copy_spec(spec_copy)
+    migrations_dir = spec_copy / "schema" / "migrations"
+    (migrations_dir / "20260808155712_unlisted.sql").write_text(
+        "CREATE TABLE unlisted (id text);")
+    # deliberately NOT added to atlas.sum
+
+    report = ensure_db(d, apply=True, spec_dir=spec_copy)
+
+    assert report.state == "diverged"
+    assert "20260808155712_unlisted.sql" in report.detail
+    assert report.applied == []
+
+
+def test_sidecar_deletion_no_longer_defeats_divergence_detection(tmp_path: Path):
+    """The exact bypass the review reproduced live: deleting
+    .arail_ensure_state.json used to silently turn "diverged" back into
+    "ok", because the sidecar was the ONLY integrity check. Ledger
+    verification against atlas.sum now catches it independently of the
+    sidecar's presence."""
+    d = tmp_path / "data"
+    d.mkdir()
+    spec_copy = tmp_path / "spec"
+    _copy_spec(spec_copy)
+    ensure_db(d, apply=True, spec_dir=spec_copy)
+
+    mig = next((spec_copy / "schema" / "migrations").glob("*.sql"))
+    mig.write_text(mig.read_text() + "\n-- tampered\n")
+
+    sidecar = d / ".arail_ensure_state.json"
+    assert sidecar.exists()
+    sidecar.unlink()  # the exact bypass from REVIEW.md BLOCK-2
+
+    report = ensure_db(d, apply=False, spec_dir=spec_copy)
+
+    assert report.state == "diverged"
+
+
+def test_ledger_verification_runs_even_on_apply_false(tmp_path: Path):
+    """status/doctor (apply=False) must catch a tampered ledger too, not
+    only start (apply=True) — reported as early as possible."""
+    d = tmp_path / "data"
+    d.mkdir()
+    spec_copy = tmp_path / "spec"
+    _copy_spec(spec_copy)
+    mig = next((spec_copy / "schema" / "migrations").glob("*.sql"))
+    mig.write_text(mig.read_text() + "\n-- tampered\n")
+
+    before = _snapshot(d)
+    report = ensure_db(d, apply=False, spec_dir=spec_copy)
+    after = _snapshot(d)
+
+    assert report.state == "diverged"
+    assert after == before  # still write-free
+
+
+def test_missing_atlas_sum_blocks_everything(tmp_path: Path):
+    d = tmp_path / "data"
+    d.mkdir()
+    spec_copy = tmp_path / "spec"
+    _copy_spec(spec_copy)
+    (spec_copy / "schema" / "migrations" / "atlas.sum").unlink()
+
+    report = ensure_db(d, apply=True, spec_dir=spec_copy)
+
+    assert report.state == "diverged"
+    assert report.applied == []
+    assert not (d / "arail.db").exists()
+
+
+# ── ASK-1: spec_dir resolves from package location, not CWD ────────────────
+
+def test_default_spec_dir_is_package_relative_not_cwd(tmp_path: Path, monkeypatch):
+    """A caller with the wrong CWD must still find the real spec tree —
+    this used to silently return "unavailable" instead of the true state."""
+    d = tmp_path / "data"
+    d.mkdir()
+    monkeypatch.chdir(tmp_path)  # nowhere near the real repo
+
+    report = ensure_db(d, apply=False)  # no spec_dir passed — uses the default
+
+    assert report.state != "unavailable"
+    assert report.state in ("pending", "ok")
