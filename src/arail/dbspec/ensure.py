@@ -432,11 +432,49 @@ def _read_user_version_readonly(db_path: Path) -> int:
     ``user_version`` into this header before any later ``apply=False``
     call can read it. Do not remove that ``close()`` — this function
     would then read a stale, pre-checkpoint value from a concurrently
-    open WAL database. (A live concurrent WRITER in a different process
-    can still leave the header transiently behind its own uncommitted
-    WAL frames — an accepted tradeoff of a health check that must never
-    write, not a correctness bug in the common case this module owns.)
+    open WAL database.
+
+    An unclosed/uncheckpointed WAL after an abnormal exit (a killed
+    writer, ``os._exit`` before ``close()``) can leave the header behind
+    the database's true ``user_version`` — QA measured this directly
+    (header showed an old value while the true value, read through
+    SQLite, was ahead) and it is NOT transient in that case: with the
+    writer dead, the stale header persists on disk until something opens
+    the file with SQLite again (which is exactly what the next
+    ``apply=True`` does — it reads the PRAGMA through SQLite, not this
+    header, so it always sees the truth and its own ``close()`` heals the
+    header for every reader after it). The consequence is bounded to
+    UNDER-reporting: this function can return a version that is stale-low
+    (yielding ``ok``/``pending`` a beat later than the truth), never a
+    version ahead of the real one, so the apply path can only ever be
+    slow to notice new committed work — it can never skip a migration or
+    write from a wrong cursor. Do not "fix" this by reading through
+    SQLite instead; that reopens QA-1.
+
+    QA-12 (round 4 regression, fixed here): a ZERO-LENGTH file is not a
+    corrupt database — it is exactly what SQLite itself calls a valid,
+    new, empty database (``PRAGMA user_version`` reads 0 on one). The
+    first version of this fix raised ``DatabaseError`` for ANY header
+    that didn't fully validate, including a merely-empty file — which
+    ``ensure_db`` turns into ``state="blocked"``, a state nothing in this
+    module (correctly) ever auto-clears. That wedged a lab PERMANENTLY on
+    exactly the file a crash, ``kill -9``, a full disk, or a laptop
+    losing power between file creation and the first commit leaves
+    behind — worse than the bug QA-1's fix replaced, because the old
+    read-via-SQLite path treated a zero-length file as version 0 too and
+    self-healed. A length-0 file is now treated as version 0, same as
+    SQLite's own semantics; a NON-EMPTY file that isn't a valid SQLite
+    header (bad magic, truncated mid-header) still raises and stays
+    ``blocked`` — F18's "never auto-delete, report it" is unchanged for
+    genuine corruption. This distinction is pinned by both halves in
+    ``tests/test_qa_ensure_header_read.py``.
     """
+    try:
+        size = db_path.stat().st_size
+    except OSError as exc:
+        raise sqlite3.DatabaseError(f"cannot read {db_path}: {exc}") from exc
+    if size == 0:
+        return 0
     try:
         with open(db_path, "rb") as f:
             header = f.read(100)
