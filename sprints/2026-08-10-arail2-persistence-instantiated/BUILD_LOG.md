@@ -928,3 +928,203 @@ stash` used.
   `install.sh`/`start.sh`/`status.sh` against a real `.venv` — ruled
   acceptable by the architect to pass to QA in round 2, not revisited
   as a builder gap in round 3.
+
+## Round 4 (TEST_REPORT.md — commits d161ac3/ca6b43a, verdict FAIL, 4 blocking findings + ASK-6)
+
+QA's full report read in full. All six failing QA tests left over from a
+crashed QA pass were independently adjudicated real defects, not bad
+tests — nothing was weakened to go green. What held (not touched this
+round, per instruction): the 600-candidate statement-safety fuzz corpus
+(zero third bypass found), collector-kill 7/7 from the caller side,
+ledger tampering, six-roots/empty-registry install, F4/F5/F10,
+cross-process `_apply_lock`, defect-B honesty surfaces, no `secrets.env`
+touched.
+
+### QA-1 (HIGH) — `apply=False` was not actually write-free
+
+`_read_user_version_readonly`'s `sqlite3.connect("file:...?mode=ro",
+uri=True)` was not write-free on a WAL-journaled database (`dbmod.connect`
+always sets `journal_mode=WAL`), breaking in opposite directions by
+SQLite version: >=3.53.4 materializes `-wal`/`-shm` sidecars (a write on
+the contractually write-free path); <=3.51.0 fails outright with
+`state="blocked"`, a DEGRADING state, so a perfectly healthy database in
+an unwritable/version-mismatched data dir degraded a live lab to exit 3.
+QA's three independent confirmations (the builder's own
+`test_user_version_ahead_of_ledger` failing under the operator's `.venv`;
+`qa_db_seamless_driver.sh` S5 showing five new `-wal`/`-shm` pairs at the
+CLI; a healthy DB in a `0o500` dir reporting `blocked`) all match what I
+reproduced independently before fixing.
+
+**Applied QA's suggested fix as-is, and I agree with it.** Read
+`PRAGMA user_version`'s value directly from the SQLite file header
+(bytes 60-63, big-endian signed int32) via a plain `open(path,
+"rb").read(100)` — genuinely zero-write on every SQLite version, since
+it never asks SQLite to open anything. I checked the one thing that
+could make this wrong (staleness against an open WAL) before trusting
+it: correctness depends on every `apply=True` caller closing its
+connection before returning, which it already does (`ensure_db`'s
+`finally: conn.close()`) — SQLite's checkpoint-on-last-close flushes the
+true `user_version` into the header before any later `apply=False` call
+reads it. Documented this as a load-bearing invariant directly in the
+function so a future edit removing that `close()` doesn't silently
+reintroduce staleness. `immutable=1` was correctly avoided per QA's own
+note (licenses stale reads of a concurrently written file) — the header
+read has no such license since it re-reads fresh bytes every call.
+
+Verified: all 5 of `test_qa_ensure_write_free.py`'s cases pass on the
+system interpreter (SQLite 3.51, the "fails outright" direction) — the
+read-only-data-dir case now correctly reports `ok`, not `blocked`. Full
+`ensure.py` suite (46) + the 600-candidate fuzz corpus + concurrency
+suite (695 tests) pass with no regressions.
+
+Commit: `07080fe` — `fix(dbspec): QA-1 — read user_version from the SQLite header, never open the file`
+
+### QA-5 (MEDIUM) — the class check only ever looked at one root
+
+`doctor.check_provisioning` passed a single `data_dir` (the root lab's
+own), so with five of six roots having no database — the operator's
+measured usage pattern — `relational_store` reported
+`instantiated=True`. `check_relational_store` now calls
+`resolve_data_dirs(repo_root, root_data_dir=data_dir)` and checks EVERY
+resolved root; `instantiated` is True only if all of them are `ok`, and
+the finding names which root(s) are missing. Verified live:
+`python -m arail.doctor` in this worktree now correctly names a real,
+previously-invisible second root (`finance`).
+
+Fixed `test_provisioning.py`'s `test_healthy_registry_has_no_required_findings`
+to use its own isolated `repo_root` rather than the shared worktree
+`REPO_ROOT` — with the fix above, the real `REPO_ROOT` would pull in
+this worktree's actual `lab/instances/` state into the check, which is
+test-isolation maintenance, not a weakened assertion (the underlying
+claim — a healthy single DB reports no finding — is unchanged, just
+correctly isolated from machine state the test doesn't control).
+
+### QA-6 (MEDIUM) — a crashing `required` check silently demoted to `info`
+
+`evaluate_all`'s except-handler hardcoded `tier="info"`, so a mechanism
+registered `required` whose predicate raised (a broken import, an
+unreadable data dir, a bug in the predicate itself) became an `info`
+finding that `doctor`'s exit code doesn't read — exactly the mechanism
+most likely to be genuinely broken. `register()` now takes a `tier`
+parameter (default `"required"` — a predicate that's never successfully
+run isn't proven safe to demote); the crash fallback in `evaluate_all`
+uses the mechanism's *registered* tier, never a hardcoded constant. The
+success path is unaffected (a successful call's own returned
+`Assertion.tier` still wins).
+
+### QA-7 (LOW) — `register()` silently replaced a built-in
+
+Was a bare `_REGISTRY[key] = fn`. Now refuses a duplicate key by
+default (logs a warning, keeps the existing registration active) unless
+the caller passes `overwrite=True` — a 2.1 mechanism, a plugin, or a bad
+merge reusing a key can no longer silently replace a real check with one
+that always reports healthy.
+
+Commit (QA-5/6/7 together, one file): `43a9cde` — `fix(provisioning): QA-5/QA-6/QA-7 — six-roots blind spot, crash demotion, silent overwrite`
+
+### ASK-6 — real, reproduced by execution (`qa_db_ledger_driver.sh` A2)
+
+BLOCK-5's round-2 fix (suppress the derived db object when a live
+instance's data root is missing) was keyed on the `data_root_missing`
+FLAG, not the db STATE — so it swallowed `"diverged"` (a fact about the
+*checkout*, BLOCK-2's tampered-ledger condition) along with the benign
+`"pending"`/`"unavailable"` it was meant to cover. An operator running
+altered committed SQL, with the only live lab's data root also missing,
+was told everything is fine: exit 0, no `verdict.reasons` entry, silent
+human view.
+
+Fixed by keying the suppression on state: a new
+`_DB_SUPPRESSIBLE_WHEN_ROOT_MISSING = {"pending", "unavailable"}` set
+and a shared `_suppress_for_missing_root()` helper, applied identically
+in the verdict computation and the `--json=full`/human augmentation.
+`"diverged"`/`"blocked"`/`"ahead"` now survive a missing data root
+unconditionally.
+
+Verified functionally against the extracted doc-builder (the same
+technique used throughout this sprint, since no `.venv` is available
+here to run `qa_db_ledger_driver.sh` directly): a live instance with
+`data_root_missing=True` and `db.state="diverged"` now correctly
+produces exit 3 with `reason="instance:ai:db:diverged"` and the db
+object intact — previously exit 0, no reason, `db=None`. The original
+BLOCK-5 case (`data_root_missing=True`, `db.state="pending"`) is
+unchanged: exit 0, `db` suppressed to `null`.
+
+Commit: `59947f4` — `fix(cli): ASK-6 — key the missing-data-root db suppression on state, not the flag`
+
+### QA-8 (HIGH, harness) — reviewed QA's already-committed fix, kept it, checked for other instances
+
+QA's finding: `make_fake_venv` symlinks the *discovered* venv's
+site-packages, and in a worktree that venv is the operator's main
+checkout's `.venv`, whose editable install points at the main checkout's
+`src/` — a different branch with no `ensure.py`. Every DB assertion in
+every driver was reachable in a state where it could pass or fail for
+reasons having nothing to do with the code under review. QA's fix (one
+line in `tests/cli/lib.sh`: `export PYTHONPATH="$CLI_TEST_REPO/src..."`,
+prepended so a driver that deliberately shadows a module still wins) was
+already committed (`ca6b43a`) before this round started.
+
+**Reviewed and kept, no changes needed.** Checked the rest of the
+harness for other places that resolve `arail` against the wrong tree:
+two other direct `$REAL_VENV/bin/python` invocations exist
+(`cli_test_make_world`'s inline `PYTHONPATH="$CLI_TEST_REPO/tests"`
+override, and the stub-uvicorn spawn) — both invoke scripts
+(`world_bundle_builder.py`, `stub_uvicorn_serving.py`) that import only
+the Python standard library, never `arail`, so neither is exposed to
+QA-8's blind spot regardless of which venv `REAL_VENV` resolves to.
+`status.sh`'s own `source .venv/bin/activate && python3 -c ...`
+collector invocations inherit the shell's exported `PYTHONPATH`
+unchanged (`activate` only prepends `PATH`), so QA's fix at the top of
+`lib.sh` covers every DB-relevant subprocess in the harness. No further
+harness changes made.
+
+### What round 4 did NOT do
+
+Did not touch `lab/` (confirmed empty diff after every commit). Did not
+run `install.sh`/`start.sh` against the operator's real lab, did not
+seek authorization to. Did not use a bare `git stash`. Did not write
+through `make_fake_venv`'s `.venv/lib` symlink. Did not re-verify QA's
+findings that "held" (fuzz corpus, collector-kill, ledger tampering,
+seamless/six-roots, concurrency, defect-B honesty, secrets) — the
+coordinator's instruction was explicit not to redo any of it, and I
+didn't. Did not chase the reported `instance.env` mtime anomaly — noted,
+not reproducible, likely a concurrent session per QA's own honest
+assessment; kept using explicit paths as instructed.
+
+### Full regression sweep after round 4
+
+```
+PYTHONPATH=src python3 -m pytest tests/test_dbspec_ensure.py \
+  tests/test_data_dirs_resolve.py tests/test_data_dirs_resolve_shell_parity.py \
+  tests/test_provisioning.py tests/test_qa_provisioning_generalize.py \
+  tests/test_pkb_semantic_backend_absent.py tests/test_win_condition_honest_failure.py \
+  tests/test_seamless_db_integration.py tests/test_cli_status.py tests/test_pkb.py \
+  tests/test_pkb_gate.py tests/test_pkb_retrieve_for_agents.py tests/test_dbspec_spec.py \
+  tests/test_qa_ensure_write_free.py tests/test_qa_ensure_concurrency.py \
+  tests/test_qa_ensure_statement_safety.py tests/test_qa_retrieval_honesty.py -q
+```
+779 passed, 2 skipped (both the standing, unchanged no-`.venv` self-skip
+reasons). `bash -n` clean on every modified shell script.
+`git diff --stat -- lab/` empty after every commit — zero `lab/`
+contamination held across all four rounds. No bare `git stash` used.
+
+### Final state, round 4
+
+- **4 additional commits**: `07080fe` (QA-1), `43a9cde` (QA-5/6/7),
+  `59947f4` (ASK-6), plus this BUILD_LOG update — 28 commits total
+  across four rounds. QA-8's fix was already committed by QA
+  (`ca6b43a`) and required no further change, only review.
+- **All four blocking findings plus ASK-6 fixed and verified**: QA-1 by
+  the full local suite (695 tests, including the previously-failing
+  system-interpreter cases now passing) plus the header-read's
+  correctness argument checked explicitly (the WAL-checkpoint-on-close
+  dependency); QA-5/6/7 by the QA test suite plus a live `doctor` run
+  showing the previously-invisible second root; ASK-6 by the same
+  extracted-doc-builder verification technique used throughout this
+  sprint, reproducing both the bug (before) and the fix (after)
+  side-by-side.
+- **Agreement with QA's suggested fix for QA-1: yes, applied as given.**
+  I verified the one property that would have made it wrong (staleness
+  against an unflushed WAL) rather than trusting "verified equivalent"
+  at face value, and confirmed the module's existing connection-close
+  discipline already makes it safe — documented that dependency
+  explicitly so it can't be silently broken by a future edit.
