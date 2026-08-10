@@ -184,7 +184,11 @@ def check_knowledge_base() -> None:
         # exit 0 there unless --strict is passed) — C5 promises setup never
         # fails on this, and doctor must not contradict that promise.
         codes = pkb_index.degraded_codes()
-        required_codes = set(codes) & {"dimension", "provenance"}
+        # "backend" (defect B, sprints/2026-08-10-arail2-persistence-
+        # instantiated): LanceDB is a hard dep in both tiers, so an
+        # interpreter that cannot import it is a broken environment, not an
+        # optional-feature gap — same tier as "dimension"/"provenance".
+        required_codes = set(codes) & {"dimension", "provenance", "backend"}
         _record("embedding_provenance", "required", not required_codes, embed_reason)
         _record("embedding_reachable", "info", embed_ok, embed_reason)
     except Exception as e:  # noqa: BLE001

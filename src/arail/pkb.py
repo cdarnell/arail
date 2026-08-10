@@ -13,6 +13,7 @@ import logging
 import os
 import re
 import shutil
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -715,7 +716,25 @@ def _semantic_search(
     from arail import pkb_index
 
     if not available():
+        # Defect B: this is the only early return in this function that
+        # previously did not call set_degraded(...). When the interpreter
+        # cannot import the vector backend at all, every other health
+        # surface (embedding_status(), retrieval_status(),
+        # X-Retrieval-Status, doctor) must say so instead of reporting
+        # healthy while semantic retrieval is silently dead. Cleared only
+        # by a later successful available() observation or a full rebuild
+        # (clear_degraded(None)) — a successful embed call is not evidence
+        # about this code (BLOCK-1 discipline).
+        pkb_index.set_degraded(
+            "backend",
+            f"LanceDB is not importable in this interpreter "
+            f"({sys.executable}) — run `./arailctl install`, or you are "
+            f"running a non-.venv python")
         return []
+    # A successful available() observation is evidence about the "backend"
+    # code specifically (§4.7) — clear it if it was set by an earlier call
+    # in this process (e.g. a hot-reloaded interpreter).
+    pkb_index.clear_degraded("backend")
     db_path = _vector_db_path(root)
     idx = VectorIndex(name="pkb_pages", db_path=db_path, dim=EMBEDDING_DIM)
     if idx.count() == 0:
