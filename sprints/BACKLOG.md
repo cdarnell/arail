@@ -1134,3 +1134,88 @@ infrastructure used by every CLI driver, and verifying it doesn't break
 anything requires a real `.venv` to run against — unavailable in this
 worktree, and the coordinator's constraints for this sprint explicitly
 forbid experimenting against the operator's real installation.
+
+---
+
+## `provisioning.evaluate_all` — a predicate can return an `Assertion` under another mechanism's key
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/TEST_REPORT.md`
+round 4, QA-11 (LOW, cosmetic) — explicit coordinator ruling "file, do not
+fix" in round 5.
+
+**The gap.** QA-7 (round 4) closed the front door: `register()` now
+refuses a duplicate key. The back door is still open — a predicate
+registered under its own key may *return* an `Assertion` object whose
+`.key` field names a *different*, already-registered mechanism (e.g. a
+plugin registered as `"my_plugin"` whose predicate returns
+`Assertion("relational_store", "required", True, True, "all good", "")`).
+`evaluate_all` does not check that a returned `Assertion.key` matches
+the key it was registered under, so this produces two rows for one
+mechanism in `arail.provisioning/v1` and `doctor`'s printed table — one
+of them potentially a fabricated "healthy" row masking the real one.
+
+**Why this stays LOW / non-blocking:** it cannot flip an exit code.
+`doctor._FINDINGS` is a list and the degrade decision is `any(not
+f.ok and ...)` over all of them — the genuine failing row (registered
+under its real key) still degrades the run even if a duplicate,
+healthy-looking row also exists under the same key. It is a
+reporting-integrity wart (confusing output), not a silencing mask.
+
+**What a future sprint should do:** in `evaluate_all`, after confirming
+`isinstance(result, Assertion)` (QA-10's fix), also check
+`result.key == key` (the key it was registered under) and, on mismatch,
+either substitute a "key mismatch" finding (mirroring QA-10's
+non-Assertion handling) or force `result.key` back to the registered
+key before appending. `tests/test_qa_provisioning_generalize.py::test_a_predicate_cannot_impersonate_another_mechanisms_key`
+is already written against the correct behavior and is left failing on
+purpose — it will pass once this lands.
+
+---
+
+## `status.sh`'s human render gates the `db:` line on liveness only — ASK-6's remaining half
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/TEST_REPORT.md`
+round 4, QA-13 (MEDIUM) — explicit coordinator ruling "file, do not fix"
+in round 5. Mitigated, not blocking.
+
+**The gap.** ASK-6's `--json`/`--json=full` half is fixed (round 4,
+`59947f4`): a tampered migration ledger (`diverged`) survives the
+missing-data-root suppression and correctly degrades a *live* lab to
+exit 3 with the reason present. What QA verified still doesn't match
+ARCHITECTURE.md §4.4's own contract text is the **human render**: on a
+tampered checkout with **nothing running** —
+
+```
+--json : root.db.state = "diverged", detail names the hash mismatch
+human  : nothing.  "root lab: not running — ./arailctl start"
+```
+
+`status.sh` gates the human `db:` line on `state == "live"` /
+`root_is_live`, but §4.4 says the line should print "only when the lab
+is up **or the state is not `ok`**" — i.e. a non-`ok` db state should be
+visible in the human view even for a lab that isn't currently running,
+which the code does not do. Verified in an independent topology (not
+just the ledger driver's own killed-PID scenario) so the finding isn't
+an artifact of driver plumbing.
+
+**Why this is mitigated, not a live safety hole:** `start` itself warns
+on `diverged` at boot (`start.sh`'s db-ensure step, `_instance_db_ensure`)
+— the moment the tampered SQL would actually be considered for replay,
+the operator sees a warning naming the exact verb. And the exit code
+`status` gives when nothing is running (`4`, "nothing running") is
+truthful on its own terms — it is not lying about liveness, it is simply
+not surfacing a fact about a stopped lab's database that ARCHITECTURE.md's
+own text says it should.
+
+**What a future sprint should do:** either (a) change `status.sh`'s
+human renderer to match §4.4's literal text — print the `db:` line
+whenever `state != "ok"`, regardless of liveness — and re-verify this
+doesn't reintroduce chatter on the many legitimate non-live, `pending`/
+`unavailable` (now correctly non-degrading) states this sprint's own
+BLOCK-5/ASK-6 work spent two rounds getting quiet; or (b) narrow
+ARCHITECTURE.md §4.4's contract text to match the code's actual,
+considered behavior (report non-`ok` db states in the human view only
+for a currently-live lab) and document why "nothing running" is treated
+as softer than "up but degraded" for this specific line. Either is
+defensible; shipping without choosing is not — same discipline BLOCK-5
+already established for the sibling suppression decision.
