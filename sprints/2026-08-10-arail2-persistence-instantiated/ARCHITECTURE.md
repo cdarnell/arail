@@ -567,6 +567,52 @@ Every row above has a test here. QA executes this as written.
 - `resolve_data_dirs` exists in shell and Python — two implementations of one
   rule. Mitigated by a shared fixture test asserting they agree; still debt.
 
+**Added — discovered during review, not anticipated at design time**
+
+These were folded in by the architect after review rounds 1 and 2 (REVIEW.md
+required action 5). Each is debt the design's own wording hid.
+
+- **§4.2's phrase "hash-verified committed migration" concealed two separate
+  mechanisms.** It was implemented first as a post-apply self-consistency
+  sidecar only, which verifies nothing on a fresh clone — the exact case this
+  sprint serves. Ledger verification against `atlas.sum` (pure Python,
+  `b64(sha256(filename + content))`) and the sidecar are *both* required and
+  are not substitutes. Future spec language must name each gate separately
+  rather than collapsing them into one adjective.
+- **An allowlist classifier is only as good as its statement splitter.**
+  `_split_statements` splits naively on `;`, so a semicolon inside a string
+  literal or comment fragments a statement. Every fragmentation case observed
+  fails *closed* (a fragment stops matching the allowlist), so this is
+  tolerable — but it is load-bearing safety resting on an accident of
+  tokenization, not on a parser. If the allowlist ever grows a keyword whose
+  statements legitimately contain semicolons (`CREATE TRIGGER … BEGIN … END;`
+  is already on it), that accident stops holding.
+- **Allowlisting a leading keyword does not bound what the statement does.**
+  `INSERT INTO` admits `ON CONFLICT … DO UPDATE SET` (an upsert that rewrites
+  existing rows) and `CREATE TRIGGER` admits a body containing `DELETE`/
+  `UPDATE` that executes later. The safe/lossy line is defined over *effects*;
+  the classifier approximates it over *prefixes*. That gap is permanent debt
+  for as long as the classifier is regex-based.
+- **Two surfaces independently decide what "degrading" means** — `status.sh`'s
+  `_DB_DEGRADING_STATES` and `ensure.main()`'s exit-code set. Reconciled by
+  hand (ASK-2); nothing enforces that they stay reconciled.
+- **`tests/cli/status_driver.sh` self-skips without a `.venv`, so the entire
+  CLI-contract layer is invisible in CI and in any worktree.** This sprint
+  added four scenarios to it, increasing what is hidden. It hid a broken
+  assertion in round 1 (T28b/T28c) and a real behaviour regression in round 2
+  (T10 flipped 0→3 undetected). Every finding at this layer in both rounds was
+  found by hand-running the driver against an external venv. **This is now the
+  highest-value untracked debt in the sprint** — file it.
+- **`tests/cli/lib.sh`'s `make_fake_venv` symlinks `$fake/.venv/lib` straight
+  into the real venv's `site-packages`.** Any scenario that writes, renames, or
+  deletes through that path mutates the operator's actual installation. The
+  builder drafted and discarded exactly such a scenario before running it — a
+  near-miss, recorded here so the next person does not complete the mistake.
+  The hazard is currently documented in a comment at the *end of
+  `status_driver.sh`*, which is not where someone editing `make_fake_venv`
+  will be standing; the note belongs at the symlink site in `lib.sh`, and the
+  helper should be hardened so a fake venv is not writable into the real one.
+
 **Repaid**
 - `arail.db` goes from "specified, zero instances on any machine" to
   "created on every lab, verified by `status`".
@@ -577,8 +623,11 @@ Every row above has a test here. QA executes this as written.
 - The "declared but never instantiated" class gets a standing check instead of
   a fourth incident.
 
-**Net:** negative (debt repaid). Two follow-up tickets required before merge:
-the Atlas CI job, and the `start`-hard-gate promotion.
+**Net:** still negative (debt repaid), but less so than designed — the review
+rounds converted three pieces of assumed-correct design into named debt.
+Follow-up tickets required before merge: the Atlas CI job, the
+`start`-hard-gate promotion, a CI-runnable path for `status_driver.sh`, and
+hardening `make_fake_venv` against writes into the real venv.
 
 ## 9. Recommended implementation order
 
