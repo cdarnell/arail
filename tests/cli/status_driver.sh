@@ -212,9 +212,38 @@ assert not missing, f"missing top-level keys: {missing}"
 assert doc["schema"] == "arail.status/v2"
 assert isinstance(doc["instances"], list)
 ' "$full_json" 2>"$WORK/t12err.txt" || fail "T12: schema key-set check failed: $(cat "$WORK/t12err.txt") — output:\n$full_json"
-_jq_instances="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])["instances"]))' "$full_json")"
-_bare_instances="$(python3 -c 'import json,sys; print(json.dumps(json.loads(sys.argv[1])))' "$instances_json")"
-[[ "$_jq_instances" == "$_bare_instances" ]] || fail "T12: .instances from --json != --json=instances — [$_jq_instances] vs [$_bare_instances]"
+# sprints/2026-08-10-arail2-persistence-instantiated §4.4/test 27: --json's
+# .instances is now db/origin-AUGMENTED (additive-only); --json=instances
+# must stay byte-identical to the pre-existing v1 rows — those are no
+# longer expected to be equal verbatim. What must still hold: (a)
+# --json=instances carries NEITHER "db" nor "origin" on any row (proving
+# it is untouched by this sprint), and (b) stripping "db"/"origin"/any
+# unregistered-only synthetic rows back out of --json's .instances
+# reproduces --json=instances exactly (proving the augmentation is purely
+# additive, not a reshuffle).
+python3 -c '
+import json, sys
+full_instances = json.loads(sys.argv[1])["instances"]
+bare_instances = json.loads(sys.argv[2])
+
+for row in bare_instances:
+    assert "db" not in row, f"--json=instances leaked a db key: {row}"
+    assert "origin" not in row, f"--json=instances leaked an origin key: {row}"
+
+stripped = []
+for row in full_instances:
+    if row.get("state") == "unregistered":
+        continue  # synthetic on-disk-unregistered row, only in --json=full
+    row = dict(row)
+    row.pop("db", None)
+    row.pop("origin", None)
+    stripped.append(row)
+
+assert stripped == bare_instances, (
+    f"stripping db/origin from --json .instances != --json=instances\n"
+    f"stripped={stripped}\nbare={bare_instances}")
+' "$full_json" "$instances_json" 2>"$WORK/t27err.txt" \
+    || fail "T27: $(cat "$WORK/t27err.txt")"
 OUT="$( cd "$FAKE" && HOME="$FAKE_HOME" PATH="$SAFE_PATH" _timeout 10 bash arailctl status --json=bogus 2>&1 )"; RC=$?
 [[ "$RC" == "2" ]] || fail "T12: --json=bogus expected exit 2, got $RC — output:\n$OUT"
 echo "$full_json" | grep -qi "lab/pkb\|Runtime state" && fail "T12: sizes leaked into --json output"
@@ -355,4 +384,87 @@ OUT_H="$( cd "$FAKE" && HOME="$FAKE_HOME" PATH="$FAKE/stubbin:$SAFE_PATH" _timeo
 echo "$OUT_H" | grep -qi "installed but inactive" || fail "T3/daemon-b: human view lost the 'installed but inactive' line — output:\n$OUT_H"
 ok_scenario
 
-echo "OK: ${pass_count} scenario(s) passed — unified status + schema v2 + verdict codes (T3, T8, T10-T12, T34, F2, F18, F20)"
+# ---------------------------------------------------------------------------
+# T28a (load-bearing): nothing running at all AND arail.db has never been
+# created anywhere -> exit 4, NEVER promoted to 3. This is the exact rule
+# ARCHITECTURE.md §4.4 draws a hard line on: "a lab that was never started
+# is not degraded."
+# sprints/2026-08-10-arail2-persistence-instantiated §7 test 28.
+# ---------------------------------------------------------------------------
+_new_scenario repo28a
+cp -R "$CLI_TEST_REPO/spec" "$FAKE/spec"
+_run_status "$FAKE" --json
+[[ "$RC" == "4" ]] || fail "T28a: expected exit 4 (nothing running, db absent), got $RC — output:\n$OUT"
+echo "$OUT" | grep -q '"code": 4' || fail "T28a: verdict.code is not 4 — output:\n$OUT"
+[[ -f "$FAKE/lab/data/arail.db" ]] && fail "T28a: status must never CREATE the db it's checking (apply=False contract)"
+ok_scenario
+
+# ---------------------------------------------------------------------------
+# T28b: root lab live, arail.db never applied (state "pending") -> exit 3,
+# reason names root:db:pending. Uses the stub-portal trick (T8d/F2) to get
+# root_state == "up" without a real uvicorn.
+# ---------------------------------------------------------------------------
+_new_scenario repo28b
+cp -R "$CLI_TEST_REPO/spec" "$FAKE/spec"
+_28b_fixture="$(_fixture "$FAKE")"
+cli_test_spawn_stub_portal "$PORTAL" "$_28b_fixture" 200
+pid_28b="$CLI_TEST_LAST_FABRICATED_PID"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$pid_28b" 2>/dev/null || break
+    "$REAL_VENV/bin/python" - "$PORTAL" <<'PY' >/dev/null 2>&1 && break
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.connect(("127.0.0.1", int(sys.argv[1])))
+    sys.exit(0)
+except OSError:
+    sys.exit(1)
+PY
+    sleep 0.2
+done
+_run_status "$FAKE" --json
+kill "$pid_28b" 2>/dev/null || true; wait "$pid_28b" 2>/dev/null || true
+[[ "$RC" == "3" ]] || fail "T28b: expected exit 3 (root up, db pending), got $RC — output:\n$OUT"
+echo "$OUT" | grep -q 'root:db:pending' || fail "T28b: verdict.reasons missing root:db:pending — output:\n$OUT"
+echo "$OUT" | python3 -c 'import json,sys; d=json.load(sys.stdin); assert d["root"]["db"]["state"]=="pending", d["root"]["db"]' \
+    || fail "T28b: root.db.state is not pending — output:\n$OUT"
+[[ -f "$FAKE/lab/data/arail.db" ]] && fail "T28b: status must never CREATE the db it's checking"
+ok_scenario
+
+# ---------------------------------------------------------------------------
+# T28c/T29: root lab live AND its db already applied (ensure_db ran with
+# apply=True out-of-band, simulating a prior `install`/`start`) -> exit 0,
+# root.db.state == "ok", root.origin == "root" present in the schema.
+# ---------------------------------------------------------------------------
+_new_scenario repo28c
+cp -R "$CLI_TEST_REPO/spec" "$FAKE/spec"
+( cd "$FAKE" && "$REAL_VENV/bin/python" -m arail.dbspec.ensure "$FAKE/lab/data" --apply --spec-dir "$FAKE/spec" >/dev/null 2>&1 ) \
+    || fail "T28c setup: ensure_db --apply failed to pre-create the db"
+_28c_fixture="$(_fixture "$FAKE")"
+cli_test_spawn_stub_portal "$PORTAL" "$_28c_fixture" 200
+pid_28c="$CLI_TEST_LAST_FABRICATED_PID"
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+    kill -0 "$pid_28c" 2>/dev/null || break
+    "$REAL_VENV/bin/python" - "$PORTAL" <<'PY' >/dev/null 2>&1 && break
+import socket, sys
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+try:
+    s.connect(("127.0.0.1", int(sys.argv[1])))
+    sys.exit(0)
+except OSError:
+    sys.exit(1)
+PY
+    sleep 0.2
+done
+_run_status "$FAKE" --json
+kill "$pid_28c" 2>/dev/null || true; wait "$pid_28c" 2>/dev/null || true
+[[ "$RC" == "0" ]] || fail "T28c: expected exit 0 (root up, db already ok), got $RC — output:\n$OUT"
+echo "$OUT" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+assert d["root"]["db"]["state"] == "ok", d["root"]["db"]
+assert d["root"]["origin"] == "root", d["root"].get("origin")
+' || fail "T29: root.db.state/origin schema check failed — output:\n$OUT"
+ok_scenario
+
+echo "OK: ${pass_count} scenario(s) passed — unified status + schema v2 + verdict codes (T3, T8, T10-T12, T27-T29, T34, F2, F18, F20)"

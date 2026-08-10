@@ -538,6 +538,43 @@ import json, sys
 print(json.dumps([l.rstrip("\n") for l in sys.stdin if l.strip()]))
 ')"
 
+# ── DB visibility (sprints/2026-08-10-arail2-persistence-instantiated
+# §4.4) — read-only (apply=False, never creates what it checks), one row
+# per resolved root (root ∪ registry ∪ on-disk-unregistered). A local
+# file read only — permitted under --no-probe, never skipped by either
+# probe flag, budgeted <50ms/root (test 32 measured ~2ms). Additive only:
+# this bash variable feeds the python doc-builder below, which decides
+# per-mode whether to expose it (--json=instances must stay untouched).
+DB_JSON="{}"
+if [[ -d "$REPO_ROOT/.venv" ]]; then
+    DB_JSON="$(cd "$REPO_ROOT" && source .venv/bin/activate && \
+        inst_resolve_data_dirs | python3 -c '
+import json
+import sys
+from arail.dbspec.ensure import ensure_db
+
+out = {}
+for line in sys.stdin:
+    line = line.rstrip("\n")
+    if not line:
+        continue
+    slug, data_dir, origin = line.split("\t")
+    report = ensure_db(data_dir, apply=False)
+    out[slug] = {
+        "origin": origin,
+        "data_dir": data_dir,
+        "db": {
+            "state": report.state, "version": report.version,
+            "spec_version": report.spec_version, "present": report.present,
+            "detail": report.detail,
+        },
+    }
+print(json.dumps(out))
+' 2>/dev/null || echo '{}')"
+    [[ -z "$DB_JSON" ]] && DB_JSON="{}"
+fi
+export DB_JSON
+
 GENERATED_AT="$(python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
 PROVISIONED="false"
 [[ -d .venv ]] && PROVISIONED="true"
@@ -558,7 +595,7 @@ print(json.dumps(dict(zip(keys, sys.argv[1:]))))
   "$PORTAL_PORT_EFF" "$OLLAMA_URL" "$OLLAMA_REACHABLE" "$OLLAMA_MANAGED" \
   "$REGISTRY_UNREADABLE" "$STATUS_QUIET" "700" "$GENERATED_AT")"
 
-export FACTS_JSON INSTANCES_JSON ROOT_SERVICES_JSON AGENTS_JSON WARNINGS_JSON
+export FACTS_JSON INSTANCES_JSON ROOT_SERVICES_JSON AGENTS_JSON WARNINGS_JSON DB_JSON
 export GREEN BOLD YELLOW DIM RESET
 
 # ── The one document-builder + two renderers (ARCHITECTURE.md §4.1, §7.3,
@@ -611,6 +648,17 @@ instances = json.loads(os.environ["INSTANCES_JSON"])
 root_services = json.loads(os.environ["ROOT_SERVICES_JSON"])
 agents = json.loads(os.environ["AGENTS_JSON"])
 warnings = json.loads(os.environ["WARNINGS_JSON"])
+db_by_slug = json.loads(os.environ.get("DB_JSON") or "{}")
+
+# Only these four states are "needs attention" per ARCHITECTURE.md §4.4's
+# exit-code mapping table — "unavailable" (no spec/schema/migrations at
+# all, e.g. a stripped-down fork per BLUEPRINTS.md) is deliberately NOT
+# in this set: a checkout the relational-store feature was never even
+# vendored into is not "the dependent service is down", it's "this
+# feature does not apply here" — degrading a live lab's status over that
+# would be a false alarm this sprint's own test fixtures (which do not
+# ship a spec/ tree) would otherwise trip on every existing scenario.
+_DB_DEGRADING_STATES = {"pending", "blocked", "ahead", "diverged"}
 
 mode = facts["mode"]
 root_state = facts["root_state"]
@@ -626,6 +674,8 @@ candidates = []
 if facts["registry_unreadable"] == "1":
     reasons.append("registry:unreadable")
 
+root_is_live = root_state in ("up", "degraded")
+
 if root_state == "foreign":
     reasons.append(f"root:foreign:{facts['portal_port']}")
     candidates.append(3)
@@ -638,6 +688,16 @@ elif root_state == "down":
     reasons.append("root:down")
     candidates.append(4)
 # "not-started" is deliberately neutral — contributes nothing (§7.1).
+
+# DB (sprints/2026-08-10-arail2-persistence-instantiated §4.4): a non-ok
+# DB state only degrades the verdict for a root/instance that is actually
+# LIVE. A stopped/never-started lab's not-yet-created DB must never turn
+# "nothing running" (4) into "degraded" (3) — that promotion is
+# explicitly forbidden by the spec.
+_root_db = db_by_slug.get("__root__", {}).get("db")
+if root_is_live and _root_db and _root_db["state"] in _DB_DEGRADING_STATES:
+    reasons.append(f"root:db:{_root_db['state']}")
+    candidates.append(3)
 
 for row in instances:
     slug = row.get("slug", "?")
@@ -654,6 +714,10 @@ for row in instances:
             candidates.append(3)
         else:
             candidates.append(0)
+        _row_db = db_by_slug.get(slug, {}).get("db")
+        if _row_db and _row_db["state"] in _DB_DEGRADING_STATES:
+            reasons.append(f"instance:{slug}:db:{_row_db['state']}")
+            candidates.append(3)
 
 if facts["registry_unreadable"] == "1":
     verdict_code = 1
@@ -670,6 +734,47 @@ else:
 
 verdict = {"code": verdict_code, "state": verdict_state, "reasons": reasons}
 
+if mode == "instances":
+    # Byte-compatible with the pre-WP5 --json output (docs/concurrent-worlds.md):
+    # the bare rows array, nothing else on stdout. Built from the SAME
+    # `instances` list the verdict above read — never the db-augmented
+    # copy built below, so this mode is untouched by this sprint (F7).
+    print(json.dumps(instances))
+    sys.exit(verdict_code)
+
+# ── --json / --json=full and the human renderer share one augmented copy
+# of `instances` (db object + origin, additive-only keys) from here on.
+# `--json=instances` above already exited using the pristine list, so
+# nothing past this point can affect its byte-compatibility.
+instances_full = []
+for row in instances:
+    row = dict(row)
+    slug = row.get("slug", "?")
+    entry = db_by_slug.get(slug)
+    row["origin"] = (entry or {}).get("origin", "registry")
+    if entry and entry.get("db"):
+        row["db"] = entry["db"]
+    instances_full.append(row)
+
+# ARCHITECTURE.md §4.3's "on-disk-unregistered is itself a finding": any
+# slug resolve_data_dirs() found with origin="ondisk" that never appeared
+# in the registry-driven `instances` rows at all gets its own minimal row
+# here — additive-only, never touches the byte-compatible instances mode
+# above, never counted toward the verdict (it isn't a "live" process by
+# any definition this file has).
+_known_slugs = {r.get("slug") for r in instances}
+for slug, entry in sorted(db_by_slug.items()):
+    if slug == "__root__" or slug in _known_slugs:
+        continue
+    if entry.get("origin") != "ondisk":
+        continue
+    instances_full.append({
+        "slug": slug, "state": "unregistered", "origin": "ondisk",
+        "data_dir": entry.get("data_dir", ""), "db": entry.get("db"),
+    })
+
+_root_entry = db_by_slug.get("__root__", {})
+
 doc = {
     "schema": "arail.status/v2",
     "generated_at": facts["generated_at"],
@@ -684,8 +789,11 @@ doc = {
         "plists_installed": _b(facts["plists_installed"]),
         "agents": agents,
     },
-    "instances": instances,
-    "root": {"state": root_state, "reason": root_reason, "services": root_services},
+    "instances": instances_full,
+    "root": {
+        "state": root_state, "reason": root_reason, "services": root_services,
+        "origin": "root", "db": _root_entry.get("db"),
+    },
     "external": {
         "ollama": {
             "url": facts["ollama_url"],
@@ -698,12 +806,6 @@ doc = {
 
 if mode == "json":
     print(json.dumps(doc, indent=2))
-    sys.exit(verdict_code)
-
-if mode == "instances":
-    # Byte-compatible with the pre-WP5 --json output (docs/concurrent-worlds.md):
-    # the bare rows array, nothing else on stdout.
-    print(json.dumps(instances))
     sys.exit(verdict_code)
 
 # ── Human renderer — same document, no ANSI codes here (bash supplies
@@ -737,9 +839,14 @@ print(f"  {BOLD}Instances{RESET}  (checkout: {facts['checkout']})")
 print("")
 if not instances:
     print("  (no World instances — see ./arailctl start --world <slug>)")
-for r in instances:
+for r in instances_full:
     slug = r.get("slug", "?")
     state = r.get("state", "?")
+    if state == "unregistered":
+        # ARCHITECTURE.md §4.3: on-disk-unregistered is itself a finding.
+        print(f"  ⚠ {slug:<10} on disk, no registry record "
+              f"(re-register via ./arailctl install)")
+        continue
     if state == "unreadable":
         print(f"  ✗ {slug:<10} unreadable (corrupt registry record — quarantined)")
         continue
@@ -759,6 +866,12 @@ for r in instances:
     data_dir = r.get("data_dir", "")
     if data_dir:
         print(f"                 data  {data_dir}")
+    # Quiet boot's status-time equivalent (§4.4): print a db: line only
+    # when this lab is up/live AND its db state isn't already ok.
+    _r_db = r.get("db")
+    if state == "live" and _r_db and _r_db["state"] in _DB_DEGRADING_STATES:
+        print(f"                 db    {_r_db['state']}"
+              + (f" — {_r_db['detail']}" if _r_db.get("detail") else ""))
 print("")
 
 if facts["provisioned"] == "true":
@@ -810,6 +923,9 @@ else:
             warn(f"{label}{svc.get('detail') or 'not running'}")
     if root_state == "degraded":
         warn(f"root lab: {root_reason}")
+    if root_is_live and _root_db and _root_db["state"] in _DB_DEGRADING_STATES:
+        warn(f"db: {_root_db['state']}"
+            + (f" — {_root_db['detail']}" if _root_db.get("detail") else ""))
 
 print("")
 

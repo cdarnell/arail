@@ -437,10 +437,24 @@ def main(argv=None) -> int:  # pragma: no cover — thin CLI shim, exercised
     ap.add_argument("--spec-dir", default=None)
     ap.add_argument("--quiet-ok", action="store_true",
                     help="print nothing when state is 'ok' with nothing applied")
+    ap.add_argument("--json", action="store_true",
+                    help="print the EnsureReport as one JSON line instead "
+                         "of the human summary — status/doctor's contract "
+                         "with this CLI, never used by install/start")
     args = ap.parse_args(argv)
 
     report = ensure_db(args.data_dir, apply=args.apply, spec_dir=args.spec_dir)
-    if not (args.quiet_ok and report.state == "ok" and not report.applied):
+    if args.json:
+        import json as _json
+        print(_json.dumps({
+            "schema": report.schema, "data_dir": report.data_dir,
+            "db_path": report.db_path, "present": report.present,
+            "applied": report.applied, "pending": report.pending,
+            "version": report.version, "spec_version": report.spec_version,
+            "spec_sha256": report.spec_sha256, "state": report.state,
+            "detail": report.detail, "action": report.action,
+        }))
+    elif not (args.quiet_ok and report.state == "ok" and not report.applied):
         print(_report_line(report))
     return 0 if report.state in ("ok", "created", "updated", "pending") else 3
 
