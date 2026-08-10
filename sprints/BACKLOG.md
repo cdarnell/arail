@@ -1219,3 +1219,92 @@ for a currently-live lab) and document why "nothing running" is treated
 as softer than "up but degraded" for this specific line. Either is
 defensible; shipping without choosing is not — same discipline BLOCK-5
 already established for the sibling suppression decision.
+
+---
+
+## `daemon_active()`'s Darwin-only guard makes `status` misreport a genuinely-supervised Gentoo/OpenRC lab as "foreground"
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/ARCHITECTURE.md`
+§10, finding 1 (PR #181 CI, 2026-08-10) — required filing alongside the
+platform gate on `tests/cli/status_driver.sh`'s `T3/daemon-a`/
+`T3/daemon-b` scenarios.
+
+**The gap.** `scripts/lib/instances.sh:464`'s `daemon_active()` opens
+with `[[ "$(uname -s)" == "Darwin" ]] || return 1` — a guard installed
+because `scripts/install-daemon.sh:35` genuinely refuses to install
+launchd supervision on non-Darwin ("launchd supervision is macOS-only").
+That guard is correct for launchd specifically. But
+`scripts/gentoo-bootstrap.sh:182` installs OpenRC services
+(`rc-update add arail-portal default`) — so a Gentoo lab CAN be, and
+often IS, supervised, just not via launchd. `daemon_active()`'s
+Darwin-only early-return means `status` reports
+`supervision.mode: "foreground"` for such a lab regardless of whether
+OpenRC is actually running it — a genuine, pre-existing observability
+defect, unrelated to and out of scope for this sprint (persistence, not
+supervision).
+
+**Why this doesn't invalidate the platform gate on the test:** the gate
+on `T3/daemon-a`/`T3/daemon-b` is scoped narrowly to "launchd supervision
+cannot exist on Linux, so a scenario that plants a `LaunchAgents` plist
+and stubs `launchctl` cannot represent a reachable state there" — that
+claim is true regardless of this OpenRC gap. The gate is NOT "Linux has
+no supervision," and no comment or code in this sprint's changes asserts
+that; this ticket exists specifically so nobody mistakes the narrow gate
+for the broader (false) claim.
+
+**What a future sprint should do:** extend `daemon_active()` (or add a
+sibling check) to detect OpenRC supervision on Linux
+(`rc-service arail-portal status`, or equivalent — mirroring
+`gentoo-bootstrap.sh`'s own install path) and report `supervision.mode`
+accurately for that case, the same way the Darwin path already does for
+launchd. Any new CLI driver scenario for this should follow this
+episode's own lesson: gate the scenario on the platform the mechanism
+actually requires, and say so loudly if the test is skipped elsewhere
+(see `status_driver.sh`'s `skip_scenario()` helper, added for exactly
+this pattern).
+
+---
+
+## The CLI driver suite's CI coverage is narrower than "all of `tests/cli/*.sh`"
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/ARCHITECTURE.md`
+§10 — "the still-open CI-runnable driver path from REVIEW3," which this
+sprint's PR #181 CI episode is itself the argument for.
+
+**What's already done:** `.github/workflows/db-ensure-ci.yml` (this
+sprint) wires four sprint-specific drivers into CI —
+`status_driver.sh`, `qa_db_collector_driver.sh`,
+`qa_db_seamless_driver.sh` (hard gates) and `qa_db_ledger_driver.sh`
+(`continue-on-error`, QA-13's one filed gap) — plus the sprint's Python
+QA suite, against a real `.venv` created in-job via `pip install -e
+".[dev]"`. That closes the specific, merge-blocking instance of this gap
+(QA-8: a driver run from the wrong source tree can report green while
+testing entirely different code).
+
+**What's still open.** The rest of `tests/cli/*.sh` —
+`install_driver.sh`, `root_start_driver.sh`, `restart_driver.sh`,
+`picker_driver.sh`, `warmup_driver.sh`, `verbs_driver.sh`,
+`color_driver.sh`, `reset_full_models_driver.sh`, `qa_edge_driver.sh`,
+and any future addition to this directory — has never run in CI at all.
+Every one of them self-skips silently without a `.venv` (the same
+`_cli_test_find_venv` pattern `status_driver.sh` uses), so a contributor
+who never happens to hand-run them locally against a real venv gets zero
+signal, on every PR, forever.
+
+**This episode is the argument for closing it.** PR #181's CI run
+surfaced a genuine, previously-undetected platform assumption
+(`T3/daemon-a`/`T3/daemon-b` encoding a macOS-only fixture with no
+gate) the moment the driver ran somewhere other than a macOS
+developer's own machine — exactly the class of defect a CI-invisible
+test layer cannot catch, on any driver, indefinitely. The four drivers
+now in CI are the ones this sprint happened to touch; the other nine are
+exposed to the identical risk and nothing currently guards them.
+
+**What a future sprint should do:** extend `.github/workflows/
+db-ensure-ci.yml` (or add a sibling workflow, matching its established
+`pip install -e ".[dev]"` + real-`.venv` shape) to run the remaining
+`tests/cli/*.sh` drivers, and audit each one for the same class of
+platform assumption `T3/daemon-a` had — a scenario is legitimate to gate
+on a platform only when the PRODUCT is gated at the same boundary and
+says so (this sprint's own standing rule, ARCHITECTURE.md §10); anything
+gated merely to make CI green needs fixing, not skipping.
