@@ -50,6 +50,15 @@ ports, PKB, default model, PATH shim, verify. Idempotent — respects an
 existing `.env`. The **only** verb that may prompt, install OS packages,
 or create/rewrite `.env`/`lab.conf`.
 
+**The relational store (`arail.db`).** After deps and the lab tree are
+in place, `setup` runs the same `ensure_db(apply=True)` sweep `install`
+uses (`sprints/2026-08-10-arail2-persistence-instantiated`
+ARCHITECTURE.md §10) over every root `resolve_data_dirs()` resolves —
+closing the one gap between `setup` and `start` where `./arailctl
+doctor` would otherwise honestly report the relational store as not yet
+instantiated. SAFE-FORWARD only, same as `install`/`start`; never fails
+`setup` — a blocked/ahead/diverged root warns and setup continues.
+
 | Flag | Effect |
 |---|---|
 | `--with-coder` / `--no-coder` | Download the Qwen2.5-Coder starter model, or don't |
