@@ -136,3 +136,18 @@ def test_to_json_schema():
     payload = provisioning.to_json([a])
     assert payload["schema"] == "arail.provisioning/v1"
     assert payload["assertions"][0]["finding"] is True
+
+
+def test_check_relational_store_cwd_independent(tmp_path: Path, monkeypatch):
+    """REVIEW.md ASK-1 regression: check_relational_store must not silently
+    report 'unavailable' just because the caller's CWD isn't the repo
+    root — doctor.check_provisioning is exposed to exactly this via
+    repo_root=os.getcwd()."""
+    monkeypatch.chdir(tmp_path)
+    a = provisioning.check_relational_store(
+        repo_root=str(REPO_ROOT), data_dir=tmp_path)
+    assert a.declared is True
+    assert a.detail != ""  # a real pending/blocked reason, not silence
+    # Specifically: must not be the CWD-relative "no spec/schema/
+    # migrations" false negative.
+    assert "no spec/schema/migrations" not in a.detail

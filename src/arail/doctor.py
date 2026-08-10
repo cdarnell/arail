@@ -249,8 +249,16 @@ def check_provisioning() -> None:
     try:
         from arail import provisioning
         from arail import config
+        # REVIEW.md ASK-1: repo_root=os.getcwd() mis-reported (a silent,
+        # non-degrading "unavailable" on a healthy DB) whenever doctor ran
+        # from a subdirectory. Derived from the package location instead —
+        # the same technique arail.dbspec.ensure.DEFAULT_SPEC_DIR already
+        # uses — so it no longer depends on where the caller happened to
+        # be standing.
+        from arail.dbspec.ensure import DEFAULT_SPEC_DIR
+        repo_root = DEFAULT_SPEC_DIR.parent
         assertions = provisioning.evaluate_all(
-            repo_root=os.getcwd(), data_dir=str(config.DATA_DIR))
+            repo_root=str(repo_root), data_dir=str(config.DATA_DIR))
         for a in assertions:
             mark = "OK" if not a.finding else ("MISSING" if a.declared else "off")
             _p(f"  [{a.tier:<8}] {a.key:<22}: {mark}"

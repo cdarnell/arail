@@ -70,9 +70,17 @@ def _reset_for_tests() -> None:
 
 def check_relational_store(*, repo_root, data_dir, spec_dir=None) -> Assertion:
     """defect A: spec/schema/* declares the store; ensure_db(apply=False)
-    tells us whether it has ever actually been created."""
-    from arail.dbspec.ensure import ensure_db
-    spec_dir = Path(spec_dir) if spec_dir is not None else Path(repo_root) / "spec"
+    tells us whether it has ever actually been created.
+
+    REVIEW.md ASK-1: ``spec_dir`` resolves from the package location
+    (``arail.dbspec.ensure.DEFAULT_SPEC_DIR``), never from ``repo_root``/
+    CWD, for the same reason ``ensure_db`` itself does — a caller with the
+    wrong working directory must not get a silent, non-degrading
+    "unavailable" on a perfectly healthy database. ``repo_root`` is still
+    used for ``data_dir``-adjacent checks (``check_instance_registry``)
+    where CWD-independence isn't needed the same way."""
+    from arail.dbspec.ensure import ensure_db, DEFAULT_SPEC_DIR
+    spec_dir = Path(spec_dir) if spec_dir is not None else DEFAULT_SPEC_DIR
     declared = (spec_dir / "schema" / "migrations").is_dir()
     if not declared:
         return Assertion("relational_store", "required", False, False,
