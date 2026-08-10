@@ -1454,7 +1454,8 @@ JLTHEME
         --port="${NOTEBOOK_PORT:-8888}" \
         --NotebookApp.token="" \
         --NotebookApp.password="" \
-        --ServerApp.tornado_settings='{"headers":{"Content-Security-Policy":"frame-ancestors '\''self'\'' http://127.0.0.1:* http://localhost:*"}}' &
+        --ServerApp.tornado_settings='{"headers":{"Content-Security-Policy":"frame-ancestors '\''self'\'' http://127.0.0.1:* http://localhost:*"}}' \
+        >"$ROOT_LOG_DIR/notebook.out.log" 2>"$ROOT_LOG_DIR/notebook.err.log" &
     _ROOT_NOTEBOOK_PID=$!
     PIDS+=("$_ROOT_NOTEBOOK_PID")
 else
@@ -1568,7 +1569,7 @@ _root_notebook_ok=1
 if command -v jupyter &>/dev/null; then
     _root_notebook_ok=0
     if _root_wait_listen_degrade "Notebook" "${NOTEBOOK_PORT:-8888}" 100 "${_ROOT_NOTEBOOK_PID:-}" \
-        ":${NOTEBOOK_PORT:-8888} did not answer in 10s — the Notebook tab will show help" \
+        ":${NOTEBOOK_PORT:-8888} did not answer in 10s — the Notebook tab will show help. Check ${ROOT_LOG_DIR}/notebook.err.log (e.g. a stale venv interpreter after a Python upgrade)." \
         "http://${BIND}:${NOTEBOOK_PORT:-8888}"; then
         _root_notebook_ok=1
     fi
