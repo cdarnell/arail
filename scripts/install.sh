@@ -501,9 +501,27 @@ _install_models_phase() {
     fi
 }
 
+# ── Compiled-KB bootstrap (QA-6) ────────────────────────────────────────
+# One non-fatal backfill call so a freshly-installed/updated lab's Compiled
+# KB manifest exists (state moves from "unbootstrapped" to "empty"/
+# "populated") without the operator needing to know the verb exists.
+# Never on `start` — only here and via the explicit `./arailctl pkb
+# bootstrap` verb. A failure here degrades, never hard-fails, install.
+_install_kb_bootstrap() {
+    [[ -d "$REPO_ROOT/.venv" ]] || return 0
+    local out rc=0
+    out="$(cd "$REPO_ROOT" && source .venv/bin/activate && python -m arail.compiled_kb bootstrap 2>&1)" || rc=$?
+    if [[ "$rc" == "0" ]]; then
+        _install_line "  [kb]              $(echo "$out" | tr '\n' ' ')"
+    else
+        _install_line "  [kb]              ⚠ Compiled KB bootstrap skipped (exit $rc)"
+    fi
+}
+
 # ── [5/5] verify ─────────────────────────────────────────────────────────
 _install_verify_phase() {
     local rc=0
+    _install_kb_bootstrap
     if [[ "$JSON_MODE" == "1" ]]; then
         bash "$REPO_ROOT/arailctl" doctor 1>&2 || rc=$?
     else

@@ -20,14 +20,16 @@ _SUBPROCESS_TIMEOUT_SEC = int(os.getenv("ARAIL_GOAL_PARSE_TIMEOUT_SEC", "60"))
 
 
 DOMAIN_KEYWORDS: Dict[str, list[str]] = {
-    "farming": ["crop", "farm", "yield", "soil", "harvest", "peanut",
-                 "corn", "wheat", "garden", "irrigation"],
+    "farming": ["crop", "crop yield", "farm", "farming", "soil", "harvest",
+                 "peanut", "corn", "wheat", "garden", "irrigation",
+                 "acre", "livestock", "agronomy"],
     "ml-research": ["model", "training", "accuracy", "dataset", "neural",
                      "llm", "fine-tune", "gpu", "benchmark"],
     "culinary": ["cook", "recipe", "cuisine", "pastry", "dish",
                   "ingredient", "technique", "ferment"],
     "business": ["revenue", "growth", "customer", "market", "sales",
-                  "profit", "scale", "startup"],
+                  "profit", "scale", "startup", "debt", "portfolio",
+                  "yield curve", "interest rate", "cash flow"],
     "health": ["fitness", "health", "diet", "exercise", "wellness",
                 "strength", "nutrition"],
     "education": ["learn", "skill", "knowledge", "course", "master",
@@ -38,15 +40,49 @@ DOMAIN_KEYWORDS: Dict[str, list[str]] = {
                "drywall", "pipefitter"],
 }
 
+_KEYWORD_PATTERNS: Dict[str, "re.Pattern[str]"] = {}
+
+
+def _keyword_pattern(keyword: str) -> "re.Pattern[str]":
+    """Word-boundary matcher for a keyword or multi-word phrase.
+
+    Substring matching is wrong here: it makes "corn" fire on
+    "cornerstone" and "scale" fire on "escalate".
+    """
+    pattern = _KEYWORD_PATTERNS.get(keyword)
+    if pattern is None:
+        pattern = re.compile(rf"\b{re.escape(keyword)}\b", re.IGNORECASE)
+        _KEYWORD_PATTERNS[keyword] = pattern
+    return pattern
+
+
+def matched_keywords(text: str, domain: str) -> list[str]:
+    """Keywords of ``domain`` that occur in ``text`` on word boundaries."""
+    return [kw for kw in DOMAIN_KEYWORDS.get(domain, [])
+            if _keyword_pattern(kw).search(text)]
+
 
 def infer_domain(text: str) -> str:
-    lower = text.lower()
-    scores = {
-        domain: sum(1 for kw in kws if kw in lower)
-        for domain, kws in DOMAIN_KEYWORDS.items()
-    }
-    best = max(scores, key=scores.get, default="general")  # type: ignore[arg-type]
-    return best if scores.get(best, 0) > 0 else "general"
+    """Best-effort domain label for a goal, or ``"general"``.
+
+    A tie resolves to ``"general"``, never to a domain. The previous
+    implementation used ``max(scores, key=scores.get)``, which returns
+    the first maximal key in dict order — so every tie silently
+    resolved to whichever domain happened to be declared first
+    (``farming``), and finance or games goals came back labelled as
+    agriculture. Keep this order-independent: the caller wants "I don't
+    know" rather than a confident wrong answer, because the label
+    selects agent system prompts and source allowlists downstream.
+    """
+    scores = {domain: len(matched_keywords(text, domain))
+              for domain in DOMAIN_KEYWORDS}
+    top = max(scores.values(), default=0)
+    if top == 0:
+        return "general"
+    winners = [domain for domain, score in scores.items() if score == top]
+    if len(winners) > 1:
+        return "general"
+    return winners[0]
 
 
 def extract_entities(text: str) -> Dict[str, list[str]]:
