@@ -601,10 +601,16 @@ def main(argv=None) -> int:  # pragma: no cover — thin CLI shim, exercised
     integration point for ``install``/``start``, so neither has to embed
     Python beyond a single ``python -m`` invocation (matches the existing
     ``python -m arail.compiled_kb bootstrap`` pattern in
-    ``scripts/install.sh``). Exits 0 for ok/created/updated/pending
-    (pending is not a hard failure — start still boots, per §4.5), and 3
-    for blocked/ahead/diverged/unavailable, so a caller that cares can
-    detect "did not come up clean" without parsing prose."""
+    ``scripts/install.sh``). Exits 0 for ok/created/updated/pending/
+    unavailable, and 3 for blocked/ahead/diverged, so a caller that cares
+    can detect "did not come up clean" without parsing prose.
+
+    REVIEW.md ASK-2: ``unavailable`` (no ``spec/schema/migrations`` at
+    all — a stripped-down fork per ``BLUEPRINTS.md``, the feature simply
+    doesn't apply here) is deliberately excluded from the degrading set,
+    matching ``status.sh``'s identical exclusion (see
+    ``scripts/status.sh``'s ``_DB_DEGRADING_STATES`` comment) — the two
+    surfaces used to disagree about this exact state."""
     import argparse
     import sys as _sys
 
@@ -633,7 +639,8 @@ def main(argv=None) -> int:  # pragma: no cover — thin CLI shim, exercised
         }))
     elif not (args.quiet_ok and report.state == "ok" and not report.applied):
         print(_report_line(report))
-    return 0 if report.state in ("ok", "created", "updated", "pending") else 3
+    return 0 if report.state in ("ok", "created", "updated", "pending",
+                                 "unavailable") else 3
 
 
 if __name__ == "__main__":  # pragma: no cover
