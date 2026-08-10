@@ -458,7 +458,17 @@ PY
 done
 _run_status "$FAKE" --json
 kill "$pid_28c" 2>/dev/null || true; wait "$pid_28c" 2>/dev/null || true
-[[ "$RC" == "0" ]] || fail "T28c: expected exit 0 (root up, db already ok), got $RC — output:\n$OUT"
+# REVIEW.md BLOCK-3 (fix required alongside it): this fixture's stub
+# portal never spawns memory/MLX/etc, so root_services legitimately
+# reports those as down and root_state degrades for THAT reason —
+# unrelated to the DB claim this scenario exists to test. Asserting
+# RC == 0 here was wrong (it can never pass); the actual claim is
+# narrower: the db subsystem itself reports healthy and contributes NO
+# db: reason to the verdict, regardless of what else on this fixture is
+# degraded for unrelated reasons.
+if echo "$OUT" | grep -qi 'root:db:\|instance:.*:db:\|db:collector-failed'; then
+    fail "T28c: verdict.reasons contains a db: reason on a healthy db — output:\n$OUT"
+fi
 echo "$OUT" | python3 -c '
 import json, sys
 d = json.load(sys.stdin)
@@ -466,5 +476,19 @@ assert d["root"]["db"]["state"] == "ok", d["root"]["db"]
 assert d["root"]["origin"] == "root", d["root"].get("origin")
 ' || fail "T29: root.db.state/origin schema check failed — output:\n$OUT"
 ok_scenario
+
+# BLOCK-3 note: "kill the collector deliberately" (rename/break
+# ensure.py, assert status is loud) is explicitly QA's assignment per
+# REVIEW.md's "What QA should hammer" — NOT added here. make_fake_venv's
+# ".venv/lib" is a symlink straight into the REAL venv's site-packages;
+# a scenario that edits/renames anything under it would mutate the
+# operator's actual installation, which the coordinator's constraints
+# forbid, and no safe equivalent (a malformed registry record, etc.) was
+# available to build and verify without a real .venv in this pass — see
+# BUILD_LOG.md's round-2 section. The required fix itself (status.sh no
+# longer swallows a collector failure) was verified functionally by
+# feeding the extracted python doc-builder DB_COLLECTOR_FAILED=1 with
+# real env vars and confirming exit 3 (live) / exit 4-never-promoted
+# (nothing running), matching the architect's own reproduction exactly.
 
 echo "OK: ${pass_count} scenario(s) passed — unified status + schema v2 + verdict codes (T3, T8, T10-T12, T27-T29, T34, F2, F18, F20)"

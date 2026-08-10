@@ -545,9 +545,24 @@ print(json.dumps([l.rstrip("\n") for l in sys.stdin if l.strip()]))
 # probe flag, budgeted <50ms/root (test 32 measured ~2ms). Additive only:
 # this bash variable feeds the python doc-builder below, which decides
 # per-mode whether to expose it (--json=instances must stay untouched).
+# REVIEW.md BLOCK-3: this collector used to end in `2>/dev/null || echo
+# '{}'` — ANY failure (ImportError, a broken interpreter, a traceback)
+# became `{}`, which renders as `"db": null` with no warning, no
+# verdict.reasons entry, and no exit-code effect. Reproduced live: the
+# DB subsystem failed to import entirely and status said nothing about
+# it. stderr is now captured (not discarded) and a non-zero exit / empty
+# / unparseable output is reported as a collector failure — DB_JSON
+# stays "{}" (nothing to render per-root), but DB_COLLECTOR_FAILED=1
+# carries the fact of the failure into the doc-builder below, which
+# turns it into a warning + a verdict.reasons entry, and degrades any
+# currently-live lab to 3 (never promoting a not-running lab's 4 to 3 —
+# same liveness gate every other db-driven degrade already uses).
 DB_JSON="{}"
+DB_COLLECTOR_FAILED=0
+DB_COLLECTOR_ERROR=""
 if [[ -d "$REPO_ROOT/.venv" ]]; then
-    DB_JSON="$(cd "$REPO_ROOT" && source .venv/bin/activate && \
+    _db_err_file="$(mktemp)"
+    _db_out="$(cd "$REPO_ROOT" && source .venv/bin/activate && \
         inst_resolve_data_dirs | python3 -c '
 import json
 import sys
@@ -570,10 +585,19 @@ for line in sys.stdin:
         },
     }
 print(json.dumps(out))
-' 2>/dev/null || echo '{}')"
-    [[ -z "$DB_JSON" ]] && DB_JSON="{}"
+' 2>"$_db_err_file")"
+    _db_rc=$?
+    if [[ "$_db_rc" == "0" && -n "$_db_out" ]] \
+        && python3 -c 'import json,sys; json.loads(sys.argv[1])' "$_db_out" >/dev/null 2>&1; then
+        DB_JSON="$_db_out"
+    else
+        DB_COLLECTOR_FAILED=1
+        DB_COLLECTOR_ERROR="$(tr '\n' ' ' < "$_db_err_file" | tr -s ' ' | cut -c1-300)"
+        [[ -z "$DB_COLLECTOR_ERROR" ]] && DB_COLLECTOR_ERROR="exit ${_db_rc}, no output"
+    fi
+    rm -f "$_db_err_file"
 fi
-export DB_JSON
+export DB_JSON DB_COLLECTOR_FAILED DB_COLLECTOR_ERROR
 
 GENERATED_AT="$(python3 -c 'import datetime; print(datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))')"
 PROVISIONED="false"
@@ -595,7 +619,7 @@ print(json.dumps(dict(zip(keys, sys.argv[1:]))))
   "$PORTAL_PORT_EFF" "$OLLAMA_URL" "$OLLAMA_REACHABLE" "$OLLAMA_MANAGED" \
   "$REGISTRY_UNREADABLE" "$STATUS_QUIET" "700" "$GENERATED_AT")"
 
-export FACTS_JSON INSTANCES_JSON ROOT_SERVICES_JSON AGENTS_JSON WARNINGS_JSON DB_JSON
+export FACTS_JSON INSTANCES_JSON ROOT_SERVICES_JSON AGENTS_JSON WARNINGS_JSON DB_JSON DB_COLLECTOR_FAILED DB_COLLECTOR_ERROR
 export GREEN BOLD YELLOW DIM RESET
 
 # ── The one document-builder + two renderers (ARCHITECTURE.md §4.1, §7.3,
@@ -649,6 +673,8 @@ root_services = json.loads(os.environ["ROOT_SERVICES_JSON"])
 agents = json.loads(os.environ["AGENTS_JSON"])
 warnings = json.loads(os.environ["WARNINGS_JSON"])
 db_by_slug = json.loads(os.environ.get("DB_JSON") or "{}")
+db_collector_failed = os.environ.get("DB_COLLECTOR_FAILED") == "1"
+db_collector_error = os.environ.get("DB_COLLECTOR_ERROR") or ""
 
 # Only these four states are "needs attention" per ARCHITECTURE.md §4.4's
 # exit-code mapping table — "unavailable" (no spec/schema/migrations at
@@ -718,6 +744,23 @@ for row in instances:
         if _row_db and _row_db["state"] in _DB_DEGRADING_STATES:
             reasons.append(f"instance:{slug}:db:{_row_db['state']}")
             candidates.append(3)
+
+# REVIEW.md BLOCK-3: a collector failure (ImportError, a broken
+# interpreter, any non-zero/unparseable exit from the DB subsystem) must
+# never render as "db": null with silence — that is this sprint's own
+# thesis (arail/provisioning.py: "declared and not instantiated is
+# always a finding, never silence") broken by the surface that exists to
+# enforce it. Always warned and always in verdict.reasons; only degrades
+# the EXIT CODE for a lab that is actually live right now (same liveness
+# gate every other db-driven degrade already uses — a collector failure
+# on a lab that was never started still must not promote 4 to 3).
+any_live = root_is_live or any(r.get("state") == "live" for r in instances)
+if db_collector_failed:
+    _detail = f": {db_collector_error}" if db_collector_error else ""
+    warnings.append(f"db: status could not check the relational store{_detail}")
+    reasons.append("db:collector-failed")
+    if any_live:
+        candidates.append(3)
 
 if facts["registry_unreadable"] == "1":
     verdict_code = 1
