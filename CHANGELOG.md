@@ -6,6 +6,49 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added (ARAIL 2.0 persistence, instantiated — the relational store comes up seamlessly)
+
+- **`arail.db` is now created and forward-migrated automatically by
+  `install` and `start`.** ARAIL 2.0 (#175) shipped a per-data-dir SQLite
+  store that nothing ever created — `arail.db` existed on zero machines.
+  `./arailctl install` now runs `ensure_db(apply=True)` over every
+  resolved root (root lab, every registered World instance, and every
+  on-disk instance with no registry record); `./arailctl start` does the
+  same for exactly the instance it's booting, before the portal binds.
+  Atlas-free (no `atlas` binary required — that stays a developer-only
+  tool for `./arailctl db apply`): replays the committed migration ledger
+  using `PRAGMA user_version` as the cursor. Only SAFE-FORWARD migrations
+  (no `DROP`/`DELETE`/`UPDATE`/table-rebuild) ever apply automatically;
+  anything lossy, ahead of this checkout, or diverged from what's on
+  disk is reported — never applied — naming the exact verb
+  (`./arailctl db apply --allow-destructive`, `./arailctl db plan`).
+  `arail.db` has no runtime reader yet — this makes the dependent service
+  come up, it does not by itself change any feature's behavior.
+- **`./arailctl status` reports the relational store per root.**
+  `--json`/`--json=full` gains an additive `db` object on the root lab
+  and every instance row, plus an `origin` (`root`/`registry`/`ondisk`)
+  tag; an on-disk instance with no registry record gets its own
+  synthetic row instead of being silently unreachable.
+  **`--json=instances` is unchanged** — still the byte-compatible bare
+  rows array, with neither key added. A live root/instance whose db is
+  `pending`/`blocked`/`ahead`/`diverged` degrades `status` to exit `3`; a
+  db that was simply never created on a lab that was never started does
+  **not** promote the existing exit `4` ("nothing running") to `3`.
+- **`./arailctl doctor` catches "declared but never instantiated" as a
+  class**, not per-incident. New `arail.provisioning` registry
+  (`relational_store`, `vector_backend`, `kb_gate`,
+  `embedding_provenance`, `instance_registry`) — every mechanism names
+  its own instantiation predicate, and "declared and not instantiated" is
+  always a finding.
+- **Semantic retrieval now reports honestly when the vector backend
+  itself can't be imported.** `pkb._semantic_search`'s
+  `if not available(): return []` branch was the only early return that
+  never set a degraded code — every health surface (`embedding_status()`,
+  `retrieval_status()`, `X-Retrieval-Status`, `doctor`) reported healthy
+  while semantic search was silently dead in that interpreter. Now sets
+  (and, on later evidence, clears) a `"backend"` degraded code, required
+  tier in `doctor` (LanceDB is a hard dep in both tiers).
+
 ### Changed (`./arailctl reset full` keeps downloaded models by default)
 
 - **`reset full` no longer wipes `lab/models/` unless asked.** Previously

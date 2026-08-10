@@ -95,7 +95,23 @@ reason unless `--force`.
 | `[2/5] deps` | `pip install -e ".[$LAB_TIER]"` (idempotent); with `--rebuild-venv`, recreates `.venv` first (**failure here is a hard failure, exit 1** — not degraded) | airgapped without `--force` |
 | `[3/5] components` | `scripts/update.sh --apply --non-interactive` — `components.json` drives it; a single component's failure warns and continues | airgapped without `--force` (`update.sh`'s own check) |
 | `[4/5] models` | Compares the expected primary chat model (`model_defaults.yaml`'s `default_a` if present, else `llama-ai-eng`) against `ollama list`; reports drift + the exact commands; applies only with `--models` | ollama absent / daemon unreachable → skipped (never hangs); the apply step also honors the airgap refusal |
-| `[5/5] verify` | `./arailctl doctor` — its exit code folds straight through (`3`→degraded, `1`→hard failure) | — |
+| `[5/5] verify` | `./arailctl doctor` — its exit code folds straight through (`3`→degraded, `1`→hard failure); before that, ensures every resolved root's `arail.db` is created and forward-migrated (see "The relational store" below) | — |
+
+**The relational store (`arail.db`).** Before `[5/5] verify`, `install`
+runs `ensure_db(apply=True)` over every root `resolve_data_dirs()`
+resolves — root lab, every registered instance, and every on-disk
+instance with no registry record — printing one `[db]` line per root
+that actually acted (silent for a root that's already `ok`). This is the
+"seamless" promise's real home (sprints/2026-08-10-arail2-persistence-
+instantiated §4.6): after `install`, every lab on the machine has a
+database. SAFE-FORWARD migrations only — additive `CREATE TABLE`/`CREATE
+INDEX`/`ALTER TABLE … ADD COLUMN`, never a statement that can remove or
+rewrite a row. Anything LOSSY/AHEAD/DIVERGED is reported, never applied
+— `install` degrades (not hard-fails) and names the exact verb
+(`./arailctl db apply --allow-destructive`, `./arailctl db plan`, or "update
+this checkout"). Note: `arail.db` has **no runtime reader yet** as of this
+sprint — creating it satisfies "the dependent service is up," it does not
+by itself make any feature work.
 
 Exit: `0` all phases ok/no-op · `3` degraded (a phase refused or failed,
 lab still usable; also `--check` pending changes) · `1`
@@ -165,6 +181,22 @@ with a real readiness gate either way, not a print-and-hope.
 directly, even when a daemon is active — daemon-mode refusal is
 `start.sh`'s own job so it can name the World slug (or `--root`) in the
 message.
+
+**The relational store (`arail.db`), a dependent service** (sprints/
+2026-08-10-arail2-persistence-instantiated §4.5). Before the portal
+binds, `start` ensures THIS instance's own `arail.db` — never a
+sibling's, and never any root-relative path a `--world` invocation
+shouldn't touch — is created and forward-migrated: `ensure_db(this_data_dir,
+apply=True)`. SAFE-FORWARD only, and reported when it acts: `db: created
+lab/instances/ai/data/arail.db (schema v1)`. A healthy, already-`ok` DB
+prints nothing (quiet boot). A LOSSY/AHEAD/DIVERGED/unavailable DB
+**warns, names the exact fixing verb, and `start` continues booting** —
+this is deliberate, not a bug: nothing outside `src/arail/dbspec/` reads
+`arail.db` at runtime yet (verified by grep), so refusing to start a
+working lab over an inert store would trade a real outage for a
+theoretical one. **This is revisitable**: the moment a runtime feature
+starts reading `arail.db`, this must become a hard readiness gate — filed
+in `sprints/BACKLOG.md`.
 
 **Root-lab readiness:** a pre-spawn check refuses immediately (before
 anything is started) if the portal port is already answering
@@ -419,9 +451,36 @@ scheduler window and `lab/` disk usage. Stale registry records are pruned
 **after** rendering, in every mode — a status command that silently
 deletes what it just reported would be surprising.
 
+**The relational store (`arail.db`) as a dependent service**
+(sprints/2026-08-10-arail2-persistence-instantiated §4.4). Every
+resolved root — root lab, every `registry.d/*.json` slug, and every
+on-disk `lab/instances/<slug>/` dir with no registry record — gets a
+read-only check (never creates what it checks; `apply=False`, always,
+even without `--no-probe`; a local file read, budgeted <50ms/root). In
+`--json`/`--json=full` this is additive:
+
+```json
+"root": {"state": "up", ..., "origin": "root",
+         "db": {"state": "ok", "version": 1, "spec_version": 1, "present": true, "detail": ""}},
+"instances": [{"slug": "ai", ..., "origin": "registry", "db": {...}}]
+```
+
+An on-disk-unregistered instance appears as its own synthetic row
+(`"state": "unregistered"`, `"origin": "ondisk"`) — the "2 of 6 roots
+reached" miss, made visible instead of silently skipped. **`--json=instances`
+is unchanged** — it keeps emitting exactly the pre-existing bare rows
+array, with neither `db` nor `origin` on any row; the augmentation only
+ever lands in `--json`/`--json=full`'s `.instances`. Human mode prints a
+`db:` line per lab only when that lab is up/live AND its db state isn't
+already `ok`/`created`/`updated` — quiet when everything is fine, exactly
+like every other line on this surface.
+
 Exit: `0` something expected is up and nothing is wrong · `3` degraded
-(up but a service is down, a registry record is stale/unreadable, or a
-foreign checkout answers the portal port) · `4` nothing running · `1`
+(up but a service is down, a registry record is stale/unreadable, a
+foreign checkout answers the portal port, **or a live root/instance's db
+is `pending`/`blocked`/`ahead`/`diverged`**) · `4` nothing running (a
+never-created `arail.db` on a lab that was never started does **not**
+promote this to `3` — a lab that was never started is not degraded) · `1`
 internal failure (registry directory unreadable) · `2` bad flag.
 
 ### `doctor`
