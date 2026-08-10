@@ -232,6 +232,23 @@ make_fake_venv() {
     local fake="$1"
     [[ -n "$REAL_VENV" ]] || return 1
     mkdir -p "$fake/.venv/bin"
+    # ⚠️  DANGER — READ BEFORE WRITING A NEW SCENARIO OR EDITING THIS LINE.
+    # "$fake/.venv/lib" is a SYMLINK straight into the REAL venv's
+    # site-packages (the whole `lib/` dir, not a copy). Any scenario that
+    # renames, edits, deletes, or writes through a path reached via
+    # "$fake/.venv/lib/..." — e.g. "rename ensure.py so an import fails,"
+    # "patch a module file to simulate a bug" — mutates the OPERATOR'S
+    # REAL INSTALLATION, not a fixture. This is not hypothetical: a draft
+    # of a status_driver.sh scenario did exactly this during
+    # sprints/2026-08-10-arail2-persistence-instantiated's round 2 (caught
+    # and discarded before it ran — see REVIEW2.md's "make_fake_venv
+    # footgun" section). To simulate an import/module failure, break it
+    # from the CALLER side instead — a PYTHONPATH that shadows the target
+    # module ahead of site-packages, or a stub `python3` earlier on PATH
+    # — never by touching anything under this symlink. If you need a
+    # scenario to write into "fake"'s own site-packages specifically,
+    # this helper is the wrong tool; per-package symlinks or a read-only
+    # tree are the follow-up filed in sprints/BACKLOG.md, not yet built.
     ln -s "$REAL_VENV/lib" "$fake/.venv/lib" 2>/dev/null || true
     [[ -f "$REAL_VENV/pyvenv.cfg" ]] && ln -s "$REAL_VENV/pyvenv.cfg" "$fake/.venv/pyvenv.cfg"
     local f base

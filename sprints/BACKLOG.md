@@ -1056,3 +1056,81 @@ parses `--json=instances`.
 `--json=instances` output) and assert byte-for-byte equality against it,
 the way F7 originally specified — independent of whatever `--json=full`
 happens to produce in the same run.
+
+---
+
+## `tests/cli/status_driver.sh` (and the whole CLI-contract driver layer) cannot run in CI or any worktree without a real `.venv`
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/REVIEW2.md`
+round 2 — "the meta-pattern... this is the second consecutive round where
+the shell layer's only real test hid something, and both times I found
+it by hand-running the driver against an external venv." Required action
+4 (partial — the other half is the `make_fake_venv` hardening entry
+below).
+
+**The gap.** `tests/cli/status_driver.sh` (and its siblings —
+`install_driver.sh`, `root_start_driver.sh`, etc.) self-skip entirely
+whenever no `.venv` with `arail` importable is found — which is every CI
+runner today and every builder worktree in this sprint's two rounds so
+far. That means the entire CLI-contract layer — the shell control flow
+that actually wires `ensure_db` into `install`/`start`/`status`, the
+exit-code contract, the byte-compatibility guarantees — has never once
+run in an automated, repeatable way. Both round 1 and round 2 of this
+sprint's review only caught real regressions (two broken test
+assertions in round 1; a live exit-code regression, T10/BLOCK-5, in
+round 2) because the architect hand-ran the driver against an external
+venv on their own machine. That is not a repeatable safety net.
+
+**What a future sprint should do:** give CI (or at minimum, the
+project's provisioned-checkout workflow) a real path to actually
+`pip install -e .` and run these drivers — not `pytest -k` skip-detection,
+an actual `.venv` build step ahead of the CLI-driver suite, gated behind
+whatever's cheapest (a dedicated CI job, a pre-commit hook on a
+provisioned machine, or at minimum a documented "run this before every
+merge" step in `docs/cli.md`/`AGENTS.md`). Until this exists, treat every
+change to `install.sh`/`start.sh`/`status.sh`/`scripts/lib/instances.sh`
+as unverified by CI regardless of how many unit tests pass.
+
+---
+
+## `tests/cli/lib.sh`'s `make_fake_venv` symlinks straight into the real venv's site-packages — no isolation
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/REVIEW2.md`
+round 2, "The `make_fake_venv` footgun" section. Recommended follow-up,
+not required before merge — a prominent warning was added at the
+symlink site instead (`tests/cli/lib.sh:make_fake_venv`) as the
+required-before-merge mitigation.
+
+**The gap.** `make_fake_venv` does `ln -s "$REAL_VENV/lib" "$fake/.venv/lib"`
+— the ENTIRE `lib/` directory (site-packages and all) is one symlink
+into the real, operator-installed venv. Any test scenario that renames,
+edits, or writes through a path reached via that symlink mutates the
+real installation, not a fixture. A draft scenario during this sprint's
+round 2 did exactly this (renaming `ensure.py` to simulate an import
+failure) — caught and discarded before it ran, but the mistake is one
+`git blame`-invisible edit away from happening for real, and the fix
+(a comment) only helps someone who reads it.
+
+**What a future sprint should do (either, whichever is cheaper when
+someone can actually test it against a real venv):**
+1. **Per-package symlinks** — instead of symlinking the whole `lib/`
+   dir, create `$fake/.venv/lib/.../site-packages` as a REAL directory
+   and symlink each top-level package/module inside it individually.
+   A scenario that renames `arail/dbspec/ensure.py` inside the FAKE
+   tree only ever touches the fake symlink to that one file, never the
+   real `arail/` package directory itself, IF the scenario is careful
+   to `readlink` before renaming — still needs care, but shrinks the
+   blast radius from "the whole real venv" to "one file."
+2. **Read-only tree** — mount or `chmod`-protect the real venv's
+   `site-packages` (or a copy of it) so any write through the symlink
+   fails loudly (permission denied) instead of silently succeeding.
+   Simpler, but chmod'ing a symlink's target has surprising semantics
+   across platforms and needs verifying against a real venv before
+   shipping — not done in this round for exactly that reason (no
+   `.venv` available to test against safely).
+
+Not implemented this round because it touches shared test-harness
+infrastructure used by every CLI driver, and verifying it doesn't break
+anything requires a real `.venv` to run against — unavailable in this
+worktree, and the coordinator's constraints for this sprint explicitly
+forbid experimenting against the operator's real installation.
