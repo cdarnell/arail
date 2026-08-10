@@ -1704,3 +1704,69 @@ consecutive genuinely-new CI finding is worth a deliberate decision
 (loosen S8's assertion to exclude `last-target.json` specifically, or
 some other resolution), not an improvised one. Left `qa_db_seamless_driver.sh`
 S8 exactly as QA wrote it.
+
+### CI re-verification after Findings 3-4 — both fixes confirmed correct; two pre-existing findings remain, both reported not fixed
+
+Pushed and waited for CI. Checked directly against workflow logs and a
+downloaded artifact, not assumed.
+
+**Finding 4 confirmed fixed**: `qa_db_seamless_driver.sh`'s failure
+signature changed from `FAIL: S9: ...` (the `stat -f` bug, prior push)
+to *only* `FAIL: S8: a root-lab start touched sibling instance dirs` —
+S9 no longer appears in the failure log at all. This directly confirms
+the portable `_secrets_snapshot()` fix works correctly on the real Linux
+runner, and confirms (independently, by absence rather than by reading)
+that S8's failure was never a Finding-4-shaped bug — exactly what the
+`grep` check before the fix already showed.
+
+**Finding 3's predicate fix is implemented and provably correct against
+the ruled truth table** — but it surfaced a real assumption in the
+ruling's own reasoning that does not hold for `blueprint-smoke.yml`'s
+specific fixture. Downloaded the `doctor.log` artifact:
+
+```
+[required] kb_gate : MISSING — gate is on, nothing approved yet — 8 page(s) await approval
+```
+
+`pending_count = 8` on a freshly-`setup` CI checkout — the seed
+`lab/pkb` content this repo ships with genuinely has 8 approvable pages.
+Per the ruled truth table this is **correctly** the "corpus exists,
+nothing approved" row: `declared=True`, `instantiated=False`, required,
+loud — my implementation is doing exactly what was specified, and the
+`detail` string is exactly the wording form the ruling required ("N
+page(s) await approval", not "no corpus to approve yet"). This is *not*
+a defect in the fix.
+
+**What it reveals**: Finding 3's ruling reasoned about "a lab with
+nothing that could be approved" as the case that needed to go quiet —
+but `blueprint-smoke.yml`'s golden-path checkout is never actually that
+lab; it always has the shipped seed PKB content pending. So `doctor`
+will keep exiting 3 on this exact golden path indefinitely, for the
+identical reason the ruling itself already named as forbidden to fix
+("there is no workflow fix here that isn't a policy violation" —
+approving those 8 pages in CI would be exactly the consent-fabrication
+the compiled-kb-bootstrap sprint forbids). This is the same wall the
+architect already identified, now empirically confirmed against the
+real fixture rather than reasoned about in the abstract.
+
+**Not fixed, reported instead** — per this session's standing
+instruction. This is squarely a question for a ruling (does
+`blueprint-smoke.yml`'s "Run doctor" step need to tolerate a
+known-degraded golden path now that `doctor` is honestly reporting an
+un-approved-but-real corpus, the way `relational_store`/§10 Finding 2
+needed a workflow change; or does the seed PKB content itself need
+pruning/excluding from the golden-path fixture; or is this accepted as
+the correct, permanent shape of a clean-machine `doctor` run) rather
+than something to improvise a third code change for without one.
+
+**Summary of this round's two rulings**: both implemented exactly as
+specified and both verified correct on the real CI runner — Finding 3
+by the truth table matching (18/18 local tests, plus the CI artifact
+showing the exact "N page(s) await approval" wording on the true
+8-pending-page state) and Finding 4 by S9 disappearing from the CI
+failure log entirely. Two findings remain open on `PR #181`'s CI, both
+reported without an improvised fix: S8's `last-target.json` (not
+Finding-4-shaped, needs its own ruling) and the golden path's
+now-honest, permanently-required `kb_gate` finding on
+`blueprint-smoke.yml` specifically (a consequence of Finding 3 being
+correct, not a defect in it).
