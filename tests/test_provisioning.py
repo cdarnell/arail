@@ -34,12 +34,22 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 def test_healthy_registry_has_no_required_findings(tmp_path: Path):
     """relational_store: fresh dir -> not-yet-created is a legitimate,
     expected finding pre-install, so we ensure it first to prove the
-    'clean machine, freshly provisioned' path reports OK."""
+    'clean machine, freshly provisioned' path reports OK.
+
+    QA-5 fix note: check_relational_store now resolves EVERY root under
+    repo_root/lab/instances/ too (see that function's docstring), so
+    repo_root must be its own isolated checkout here — passing the real
+    shared REPO_ROOT would pull in this worktree's actual lab/instances/
+    state (unrelated to what this test is exercising) and make the
+    finding depend on machine state outside the test's control."""
     from arail.dbspec.ensure import ensure_db
-    ensure_db(tmp_path, apply=True, spec_dir=REPO_ROOT / "spec")
+    isolated_repo = tmp_path / "checkout"
+    data_dir = isolated_repo / "lab" / "data"
+    data_dir.mkdir(parents=True)
+    ensure_db(data_dir, apply=True, spec_dir=REPO_ROOT / "spec")
 
     a = provisioning.check_relational_store(
-        repo_root=REPO_ROOT, data_dir=tmp_path, spec_dir=REPO_ROOT / "spec")
+        repo_root=isolated_repo, data_dir=data_dir, spec_dir=REPO_ROOT / "spec")
     assert a.finding is False
 
 

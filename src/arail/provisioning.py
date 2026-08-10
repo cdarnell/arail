@@ -24,9 +24,12 @@ no index builds, ever.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, List
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -46,14 +49,43 @@ class Assertion:
 
 AssertionFn = Callable[..., Assertion]
 
+# key -> (fn, tier). ``tier`` here is the mechanism's OWN declared tier —
+# used only as the fallback when ``fn`` raises (see ``evaluate_all``,
+# QA-6); a successful call's own returned ``Assertion.tier`` always wins
+# on the happy path, so registering "required" does not force every
+# finding to that tier, only the crash case.
 _REGISTRY: dict = {}
 
 
-def register(key: str, fn: AssertionFn) -> None:
+def register(key: str, fn: AssertionFn, *, tier: str = "required",
+             overwrite: bool = False) -> None:
     """Add a mechanism's instantiation predicate to the registry. Adding a
     mechanism to ARAIL 2.1 without registering an assertion here should
-    feel like an omission — this registry is the checklist."""
-    _REGISTRY[key] = fn
+    feel like an omission — this registry is the checklist.
+
+    TEST_REPORT.md QA-7: a duplicate ``key`` is refused, not silently
+    applied — a 2.1 mechanism, a plugin, or a bad merge that reuses an
+    existing key must not be able to silently replace a built-in
+    predicate (including replacing a real check with one that always
+    reports healthy) with no error and no trace. Pass ``overwrite=True``
+    if replacing an existing registration is genuinely intended (e.g. a
+    module reload in a REPL); the built-in registrations below never do.
+
+    ``tier`` (TEST_REPORT.md QA-6) is the mechanism's OWN tier, used only
+    as the fallback classification if this predicate later raises instead
+    of returning an ``Assertion`` — see ``evaluate_all``. Defaults to
+    "required": a predicate that has never successfully run even once is
+    not proven safe to demote, and defaulting to "info" would silently
+    reintroduce QA-6 for every future ``register()`` call that forgets to
+    pass a tier."""
+    if key in _REGISTRY and not overwrite:
+        _log.warning(
+            "provisioning.register(%r) ignored: a mechanism is already "
+            "registered under this key. The existing predicate stays "
+            "active. Pass overwrite=True if replacing it is deliberate.",
+            key)
+        return
+    _REGISTRY[key] = (fn, tier)
 
 
 def registered_keys() -> List[str]:
@@ -76,22 +108,42 @@ def check_relational_store(*, repo_root, data_dir, spec_dir=None) -> Assertion:
     (``arail.dbspec.ensure.DEFAULT_SPEC_DIR``), never from ``repo_root``/
     CWD, for the same reason ``ensure_db`` itself does — a caller with the
     wrong working directory must not get a silent, non-degrading
-    "unavailable" on a perfectly healthy database. ``repo_root`` is still
-    used for ``data_dir``-adjacent checks (``check_instance_registry``)
-    where CWD-independence isn't needed the same way."""
+    "unavailable" on a perfectly healthy database.
+
+    TEST_REPORT.md QA-5: checking only ``data_dir`` (one root) is this
+    sprint's own six-roots defect (§4.3) recurring INSIDE the class check
+    built to prevent it — the operator's measured usage is one World at a
+    time with the root lab never started, so five of six roots would be
+    silently skipped. Now checks every root ``resolve_data_dirs(repo_root,
+    root_data_dir=data_dir)`` resolves — ``data_dir`` anchors the root row
+    (so a caller testing one isolated data_dir, or doctor passing the
+    root lab's own DATA_DIR, still gets it checked as "the root"), and any
+    registered/on-disk World instance under ``repo_root/lab/instances/``
+    is checked alongside it. ``instantiated`` is True only if EVERY
+    resolved root has ``state == "ok"``; a single missing database
+    anywhere is a finding, naming which root(s)."""
+    from arail.data_dirs import resolve_data_dirs
     from arail.dbspec.ensure import ensure_db, DEFAULT_SPEC_DIR
     spec_dir = Path(spec_dir) if spec_dir is not None else DEFAULT_SPEC_DIR
     declared = (spec_dir / "schema" / "migrations").is_dir()
     if not declared:
         return Assertion("relational_store", "required", False, False,
                          "no spec/schema/migrations/ in this checkout", "")
-    report = ensure_db(data_dir, apply=False, spec_dir=spec_dir)
-    instantiated = report.state == "ok"
+    rows = resolve_data_dirs(repo_root, root_data_dir=data_dir)
+    reports = [(row, ensure_db(row.data_dir, apply=False, spec_dir=spec_dir))
+              for row in rows]
+    missing = [row.slug for row, rep in reports if rep.state != "ok"]
+    instantiated = not missing
+    if instantiated:
+        detail = ""
+        action = ""
+    else:
+        detail = (f"{len(missing)} of {len(rows)} resolved root(s) have no "
+                  f"database: {', '.join(missing)}")
+        action = "./arailctl install"
     return Assertion(
         "relational_store", "required", declared, instantiated,
-        detail=(f"{report.state}: {report.detail}" if report.detail
-                else report.state),
-        action=report.action or "./arailctl install",
+        detail=detail, action=action,
     )
 
 
@@ -175,15 +227,26 @@ register("instance_registry", check_instance_registry)
 
 def evaluate_all(**kwargs) -> List[Assertion]:
     """Run every registered assertion. A single mechanism's check failing
-    with an exception becomes an info-tier finding naming the exception,
-    never a crash of the whole checkup."""
+    with an exception becomes a finding naming the exception, never a
+    crash of the whole checkup.
+
+    TEST_REPORT.md QA-6: the crash fallback used to hardcode tier="info",
+    so a mechanism registered "required" whose predicate raised — a
+    broken import, an unreadable data dir, a bug in the predicate itself
+    — silently demoted to a tier nobody's exit code reads (only required
+    findings degrade doctor's exit code). The mechanism most likely to be
+    genuinely broken is the one whose check just crashed; that is exactly
+    the case that must NOT be downgraded. The fallback now uses the tier
+    the mechanism was REGISTERED with (see ``register``'s ``tier``
+    parameter), not a hardcoded constant — the tier belongs to the
+    mechanism, not to the outcome of evaluating it."""
     out = []
     for key in registered_keys():
-        fn = _REGISTRY[key]
+        fn, tier = _REGISTRY[key]
         try:
             out.append(fn(**kwargs))
         except Exception as exc:  # noqa: BLE001
-            out.append(Assertion(key, "info", True, False,
+            out.append(Assertion(key, tier, True, False,
                                  f"check raised {type(exc).__name__}: {exc}", ""))
     return out
 
