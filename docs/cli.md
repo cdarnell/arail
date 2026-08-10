@@ -522,6 +522,73 @@ Exit: `0` pruned or already clean · `3` pkb root missing/unreadable — the
 prune deliberately refuses there rather than treating "every path looks
 deleted" as 556 revocations.
 
+`bootstrap` — backfill the Compiled KB for one root: auto-approve the
+currently-staged World's term pages, or write an empty-but-present manifest
+if none qualify. Fixes the QA-6 symptom (agents get zero knowledge-base
+results because the gate ships on while nothing has ever been approved).
+`./arailctl install` (alias `update`) calls this once, non-fatally, for the
+root lab. It is deliberately **not** called by `./arailctl start` — booting
+must stay quiet and must never silently re-approve a term the operator
+revoked. `world_mount.mount()` **and** `world_mount.swap()` both call the
+same reconciliation on every mount/switch going forward — `bootstrap` exists
+for backfilling roots that were mounted/swapped before this mechanism
+shipped, or whose auto-approval was skipped by an escape hatch at the time.
+
+| Flag | Effect |
+|---|---|
+| `--dry-run` | Print what would be approved, change nothing |
+| `--world <slug>` | Target one World instance's PKB root (`lab/instances/<slug>/pkb`) instead of the root lab. `--world root` targets the root lab explicitly. |
+| `--all-instances` | Run bootstrap for the root lab **and** every registered World instance (`lab/instances/<slug>/pkb` for each slug in the instance registry — see `scripts/lib/instances.sh`), one after another. Mutually exclusive with `--world`. Per-root failures are printed and do not abort the remaining roots; the verb's own exit code is non-zero if any root failed. |
+
+A concurrent-Worlds lab (`./arailctl start --world <slug>`, see
+`docs/concurrent-worlds.md`) has one PKB root per instance plus the root
+lab's own — `./arailctl install` only ever backfills the root lab, so after
+adding or resuming World instances, run `./arailctl pkb bootstrap
+--all-instances` once to backfill every root in one command. This is the
+full multi-World backfill procedure; there is no other documented path and
+none is needed — hand-reconstructing an instance's env pack to invoke the
+single-root form is not required.
+
+Scope invariant (a security boundary, not a convenience default): a path is
+auto-approved iff it matches `sources/world-<slug>/terms/<term-slug>.md`
+**and** `<term-slug>` is present in the bundle's `terms.json`. `notes/`,
+`inbox/`, `conversations/`, and everything under `agents/` are unreachable by
+this mechanism no matter what a World bundle contains — only World-forged,
+DaC-compiled term pages qualify.
+
+Two verification levels, both auditable from `approved_by` in
+`compiled/kb/approved.json`:
+
+- `world-seal:<sha12>` — written by the `mount()`/`swap()` hook, where
+  `<sha12>` is the first 12 hex chars of the bundle's `verify_seal()`-checked
+  `computed_sha256`. The seal was actually verified before this approval was
+  written.
+- `world-terms:<sha12>` — written by `./arailctl pkb bootstrap`, where
+  `<sha12>` is the sha256 of the catalog's `terms.json` bytes alone.
+  `bootstrap()` reads the catalog copy directly and does **not** call
+  `verify_seal()` — the stamp says so honestly rather than claiming a
+  verification that did not happen. This is not a widened attack surface:
+  anyone with write access to the lab who could forge a bundle that passes
+  this check already has write access to `approved.json` itself.
+
+Two escape hatches, both fail toward *less* auto-approval:
+
+- `ARAIL_AUTO_APPROVE_WORLD_TERMS=off` disables the mount-time hook globally
+  (the explicit `bootstrap` verb still works).
+- A sentinel file `compiled/kb/no-auto-approve` under a PKB root disables it
+  for that root only — presence, or any error reading it, counts as
+  disabled. It's a file rather than a config flag so it lives with the data
+  and survives a re-mount; drop it into a World's PKB root to opt that World
+  out with no code change.
+
+A term the operator explicitly revokes (`./arailctl pkb prune` doesn't do
+this — revocation is via the Knowledge page's Compiled KB review, or
+`compiled_kb.revoke()`) stays revoked across future mounts via a sticky
+`compiled/kb/unapproved.json` record; a later explicit re-approval clears
+it. `./arailctl pkb bootstrap` is also the door for a lab whose World was
+mounted before this sprint shipped — those bundles are already sealed and
+will never re-enter a mount path on their own, so they need one manual run.
+
 `reembed` — explicit, resumable re-embed of one World's (or the root
 lab's) `pkb_pages` vector index with the spec-declared embedding provider
 (C2, `sprints/2026-08-08-arail2-tier1-integration/`). This is the **only**

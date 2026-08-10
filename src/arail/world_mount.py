@@ -1512,6 +1512,8 @@ def mount(
     2. Stage files to pkb/sources/world-<slug>/ via .staging-<slug>/
     3. ensure_ready + schedule_upsert per staged file
     4. Write pointer LAST (atomic temp+replace)
+    3.5. Auto-approve this World's term pages into the Compiled KB
+         (best-effort, QA-6 — see auto_approve_world_terms)
     5. wiki.schedule_rebuild() best-effort
     """
     bundle_dir = Path(bundle_dir)
@@ -1551,6 +1553,19 @@ def mount(
         pin={"world_sha256": seal.computed_sha256},
     )
     _write_record(record, dd)
+
+    # Step 3.5: narrowly-scoped auto-approval of this World's term pages,
+    # reconciled against the just-verified bundle's terms.json (QA-6). A
+    # path is admitted iff it matches sources/world-<slug>/terms/<term-
+    # slug>.md AND <term-slug> is in bundle.terms. Best-effort — an
+    # exception here must never fail the mount.
+    try:
+        from arail.compiled_kb import auto_approve_world_terms
+        auto_approve_world_terms(
+            bundle.slug, bundle_terms=bundle.terms,
+            seal_sha=seal.computed_sha256, pkb_root=pkb)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: auto-approval skipped (continuing): %s", e)
 
     # Step 4b: the lab now reflects a different World than whatever goal
     # was running (if any) — same "reflects the mounted World" rule KB
@@ -1676,6 +1691,19 @@ def swap(
         pin={"world_sha256": seal.computed_sha256},
     )
     _write_record(record, dd)
+
+    # Step 4.5: narrowly-scoped auto-approval of the incoming World's term
+    # pages, same as mount()'s step 3.5 (QA-6 review, BLOCK-1) — swap() is
+    # the path the operator actually takes on every World switch, so it
+    # needs the same reconciliation against the just-verified bundle's
+    # terms.json. Best-effort — an exception here must never fail the swap.
+    try:
+        from arail.compiled_kb import auto_approve_world_terms
+        auto_approve_world_terms(
+            bundle.slug, bundle_terms=bundle.terms,
+            seal_sha=seal.computed_sha256, pkb_root=pkb)
+    except Exception as e:  # noqa: BLE001
+        _log.warning("world_mount: auto-approval skipped (continuing): %s", e)
 
     # The lab now reflects a different World — same rule mount() follows.
     _switch_goal_for_world(bundle.slug, dd)
