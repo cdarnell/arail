@@ -517,3 +517,254 @@ instead of stashing at all.**
   was independently verified — but "believed correct" is not "run and
   passed"). This is the right next gate for `/architect review` and/or
   `/qa` on a provisioned machine, not a reason to withhold the build.
+
+## Round 2 (fixing REVIEW.md's BLOCK verdict — commit 6328112)
+
+Architect's review round 1: **BLOCK**, 3 findings, all on the boot-time
+auto-apply safety boundary, all verified by execution rather than by
+reading. Full review at `sprints/2026-08-10-arail2-persistence-instantiated/REVIEW.md`.
+The review confirmed the exit-code contract, `apply=False` write-freedom,
+provisioning generalization, and defect B's fix were all correct and
+should not be redone.
+
+### BLOCK-1 — the lossy classifier could not fail closed
+
+The classifier was a denylist of six regex patterns. Four verified-
+executable SQLite bypasses classified SAFE-FORWARD and would have been
+auto-applied at `start`: `ALTER TABLE t DROP c` (no `COLUMN` keyword —
+the idiomatic short form and the single most likely destructive migration
+anyone actually writes), `REPLACE INTO`, `INSERT OR REPLACE INTO`,
+`UPDATE OR REPLACE`, plus `DROP VIEW`/`DROP TRIGGER`.
+
+**Fix:** inverted to an ALLOWLIST keyed on leading statement keywords
+(`CREATE TABLE`, `CREATE [UNIQUE] INDEX`, `CREATE VIEW`, `CREATE TRIGGER`,
+`ALTER TABLE ... ADD COLUMN`, bare `INSERT INTO`). Classification moved
+from whole-file-regex to per-statement (after `_split_statements`); a
+migration is SAFE-FORWARD only if every statement matches the allowlist,
+LOSSY otherwise — including anything unrecognized. Leading SQL comments
+(Atlas's own generated migrations prefix nearly every statement with
+one) are stripped before the allowlist match, since comments cannot be
+"escaped" early and this reopens no bypass — verified the real committed
+baseline still classifies SAFE-FORWARD (`test_real_baseline_migration_classifies_safe_forward`).
+
+Test table rewritten with all four verified bypasses, `DROP VIEW`/
+`DROP TRIGGER`, and unparseable/unrecognized-statement cases — all
+correctly LOSSY. `test_lossy_classifier_table_driven` now has 22 cases
+(was 10).
+
+### BLOCK-2 — migrations executed with zero integrity check on first apply
+
+My round-1 architect-feedback item (a) asserted Atlas's digest was
+"undocumented, binary-only" — the review reproduced it exactly:
+`base64(sha256(filename_bytes + content_bytes))`, three lines of pure
+Python, no `atlas` binary, verified byte-for-byte against this repo's
+real `atlas.sum`. The premise was false. Consequence: the sidecar only
+records a hash *after* a file has been applied, so on a fresh clone
+`ensure_db(apply=True)` executed migration SQL having verified nothing
+at all — and deleting `.arail_ensure_state.json` silently turned
+`diverged` back into `ok`.
+
+**Fix:** `ensure_db` now verifies every committed migration against
+`atlas.sum` (parsed in pure Python, matching the algorithm above) BEFORE
+any SQL executes — on `apply=False` too, so `status`/`doctor` catch a
+tampered ledger as early as possible. A file missing from the ledger or
+whose hash disagrees makes the whole call `state="diverged"`, zero
+statements executed. The sidecar is kept as the complementary post-apply
+check (it still catches "someone edited an already-applied file," which
+`atlas.sum` alone can't express since it only ever describes the current
+checkout, not a given database's history) — it's no longer the *only*
+gate.
+
+Six new tests: the hash reproduction pinned against the real `atlas.sum`,
+fresh-clone-verifies-before-executing, unlisted-file-diverges,
+sidecar-deletion-no-longer-defeats-detection (the exact bypass the
+review reproduced live), ledger-check-runs-on-apply=False-too, and
+missing-atlas.sum-blocks-everything.
+
+Also fixed as part of the same change: **ASK-4** (removed the dead
+`if True:` scaffolding in `_apply_locked`) and **ASK-5** (`record_version`
+being silently skipped when the spec fails to load — now reported in
+`detail` instead of leaving `state="created"` with an empty
+`schema_version` table silently).
+
+Commit: `d78aa69` — `fix(dbspec): BLOCK-1/BLOCK-2 — allowlist classifier, ledger verification before execution`
+
+**Collateral fix required by BLOCK-1/2's stricter checking:**
+`test_failure_isolation_bad_migration`'s synthetic migration files now
+need real `atlas.sum` entries (ledger verification runs before
+classification/execution) — added via `ensure.py`'s own `_atlas_file_hash`
+so the test can't silently drift from what the module actually checks.
+Its "broken" migration also switched from a classification-rejected typo
+(`CREATE TBLE`, caught by the new allowlist before ever reaching
+execution) to a real execution-time SQL error (`CREATE TABLE ... (;` —
+valid leading keywords, malformed body), preserving the original F2
+per-file-transaction-rollback intent the allowlist would otherwise have
+short-circuited before it could be exercised.
+
+### ASK-1 — `spec_dir`/`repo_root` resolved from CWD, not the package location
+
+`ensure_db`'s `spec_dir` default was the relative `Path("spec")`; a
+caller with the wrong CWD got a silent, non-degrading `unavailable` on a
+perfectly healthy database. Latent everywhere shell callers `cd
+"$REPO_ROOT"` first, but exposed: `doctor.check_provisioning` passes
+`repo_root=os.getcwd()`.
+
+**Fix:** `DEFAULT_SPEC_DIR = Path(__file__).resolve().parents[3] / "spec"`
+— derived from the package location, matching the editable-install
+assumption already relied on elsewhere. `check_relational_store` now
+defaults from this constant instead of re-deriving from `repo_root`;
+`doctor.check_provisioning` derives `repo_root` the same way instead of
+`os.getcwd()`. Verified by hand: `python -m arail.doctor` run from `/tmp`
+now correctly reports `relational_store: pending` (the true state), not
+`unavailable`.
+
+Commit: `ee797bf` — `fix(provisioning): ASK-1 — resolve spec_dir/repo_root from package location, not CWD`
+
+### BLOCK-3 — `status.sh`'s DB collector swallowed every failure
+
+The collector ended in `2>/dev/null || echo '{}'`. Any failure became
+`{}`, rendering `"db": null` with no warning, no `verdict.reasons` entry,
+no exit-code effect. The architect reproduced this live by accident: the
+DB subsystem failed to import entirely and `status` exited 3 for an
+unrelated memory reason, saying nothing about the dead subsystem — this
+sprint's own thesis ("declared and not instantiated is always a finding,
+never silence") broken three files from where it's stated.
+
+**Fix:** stderr is captured to a temp file instead of discarded; a
+non-zero exit, empty output, or unparseable JSON is a collector failure.
+`DB_COLLECTOR_FAILED`/`DB_COLLECTOR_ERROR` feed the python doc-builder,
+which appends a `db: status could not check the relational store: ...`
+warning, adds `db:collector-failed` to `verdict.reasons` unconditionally,
+and degrades a currently-live root/instance to exit 3 — gated on the
+same liveness check every other db-driven degrade already uses, so a
+collector failure on a lab that was never started still exits 4, never
+promoted to 3.
+
+**Verified functionally** (not just read) against the extracted python
+doc-builder with real env vars simulating both cases:
+- root live + `DB_COLLECTOR_FAILED=1` → exit 3, `verdict.reasons =
+  ['db:collector-failed']`, warning present naming the captured error —
+  reproduces the architect's exact live finding, now loud instead of
+  silent.
+- nothing running + `DB_COLLECTOR_FAILED=1` → exit 4 (never promoted),
+  `db:collector-failed` still present in `reasons` (non-degrading, but
+  not silent either).
+
+Also required: `tests/cli/status_driver.sh`'s T28c asserted `RC == 0` on
+a fixture whose stub portal never spawns memory/MLX/etc, so root
+legitimately degrades for an unrelated reason — could never pass. Fixed
+to the narrower, correct claim the scenario actually needs: no
+`db:`-prefixed reason appears in `verdict.reasons` on a healthy db,
+regardless of what else is degraded.
+
+**Deliberately NOT added:** a driver scenario that breaks the collector
+end-to-end (QA's explicit assignment per REVIEW.md's "What QA should
+hammer," not a builder requirement this round). I attempted one and
+caught my own mistake before committing it: `tests/cli/lib.sh`'s
+`make_fake_venv` symlinks `.venv/lib` straight into the **real** venv's
+site-packages, so a scenario that renames/edits anything under it (e.g.
+"rename `ensure.py` so the import fails") would mutate the operator's
+actual installation — exactly what the coordinator's constraints forbid.
+I built and then discarded that version before running it against
+anything. A safer alternative (a malformed registry record designed to
+crash the collector's own TSV parsing) turned out not to reach the
+vulnerable code path (`inst_resolve_data_dirs` computes `data_dir` from
+the slug/filename, not from JSON field content, so the injected
+malformed field was never read) and I judged building a *verified*
+correct crash-fixture without a real `.venv` to test against, under this
+constraint, not worth the risk of shipping a broken or — worse — falsely
+reassuring scenario. Left as a clearly-marked comment in the driver
+pointing QA at exactly this gap, plus the functional verification above
+as the evidence for the fix itself.
+
+Commit: `8905a17` — `fix(cli): BLOCK-3 — status.sh's DB collector no longer swallows failures`
+
+### ASK-2 — install and status disagreed about `unavailable`
+
+`_install_db_ensure` degraded install on ANY non-zero CLI exit, including
+`unavailable`; `status.sh` deliberately excludes that state. Cheap fix
+per the coordinator's ruling: the `ensure.py` CLI's exit code now matches
+`status.sh`'s `_DB_DEGRADING_STATES` exactly — 0 for
+ok/created/updated/pending/unavailable, 3 for blocked/ahead/diverged.
+
+Commit: `2add0c2` — `fix(dbspec): ASK-2 — install and status now agree on "unavailable"`
+
+### ASK-3 — filed, not fixed (non-blocking, per the review)
+
+`--json=instances`'s byte-compatibility guard (T12/T27) is an
+internal-consistency check (strip `db`/`origin` from `--json`'s
+`.instances`, must equal `--json=instances`), not the committed golden
+ARCHITECTURE.md's test 27 originally specified. Real property, but
+self-referential — a change that broke both modes identically would
+pass. Filed in `sprints/BACKLOG.md` per the review's explicit
+instruction ("not worth blocking; file it").
+
+### Item 5 (add unanticipated debt to ARCHITECTURE.md §8) — deferred to the architect
+
+The review's required-action item 5 asks for the round-1 unanticipated
+debt (the denylist→allowlist inversion and ledger verification hiding
+behind "hash-verified committed migration" in §4.2; ASK-2's two-sources-
+of-truth; the CLI-contract layer's total self-skip without a `.venv`) to
+be added to ARCHITECTURE.md §8. I did not edit ARCHITECTURE.md directly
+— it is the architect's own artifact from the design phase, and this
+sprint's round-1 build already respected that boundary (BUILD_LOG raised
+the divergence-hash interpretation as an "architect feedback requested"
+item rather than editing the spec to match). This round's debt delta is
+recorded here instead; the architect's own next pass should fold it into
+§8 alongside their PASS/BLOCK verdict, consistent with "the architect
+doesn't build code; the builder doesn't redesign."
+
+### Full regression sweep after round 2
+
+```
+PYTHONPATH=src python3 -m pytest tests/test_dbspec_ensure.py \
+  tests/test_data_dirs_resolve.py tests/test_data_dirs_resolve_shell_parity.py \
+  tests/test_provisioning.py tests/test_pkb_semantic_backend_absent.py \
+  tests/test_win_condition_honest_failure.py tests/test_seamless_db_integration.py \
+  tests/test_cli_status.py tests/test_pkb.py tests/test_pkb_gate.py \
+  tests/test_pkb_retrieve_for_agents.py tests/test_dbspec_spec.py \
+  tests/test_doctor_embedding_status.py -q
+```
+123 passed, 1 skipped (test_cli_status.py's self-skip, no `.venv` here —
+unchanged reason from round 1), 3 pre-existing failures in
+`test_doctor_embedding_status.py` that require `lancedb` and fail
+identically on the pristine `d5c592a` baseline (re-confirmed this round,
+not a regression). `bash -n` clean on every modified shell script.
+`git diff --stat -- lab/` empty at every commit — zero `lab/`
+contamination held across both rounds, confirmed after every commit in
+this pass per the coordinator's explicit constraint. No bare `git
+stash` used this round (explicit paths only, per the constraint — the
+round-1 incident is not repeated).
+
+### What round 2 did NOT touch, and why
+
+Per the coordinator's explicit constraints: `install.sh`/`start.sh` were
+NOT run against the operator's real lab, and no authorization was sought
+for that (the architect's review explicitly ruled this acceptable to
+pass to QA, using `tests/cli/lib.sh`'s existing fake-venv/fake-repo
+harnesses rather than the operator's lab). `status.sh`'s own control flow
+WAS exercised live by the architect in their review (T28a/T28b/T27
+passing, T28c a test bug) — this round's `status.sh` changes were
+verified against the same extracted-doc-builder technique used in round
+1, not a live `bash arailctl status` run, since no `.venv` is available
+in this worktree. The operator's provisioned checkout should re-run
+`tests/cli/status_driver.sh` in full (all scenarios, including the new
+T28c fix) to confirm live, not just via the extracted-logic verification
+recorded here.
+
+### Final state, round 2
+
+- **6 additional commits**: `d78aa69` (BLOCK-1/BLOCK-2), `ee797bf`
+  (ASK-1), `8905a17` (BLOCK-3), `2add0c2` (ASK-2), plus the BACKLOG.md
+  ASK-3 filing and this BUILD_LOG update — 20 commits total across both
+  rounds.
+- **All three BLOCKs addressed** with the review's required fixes,
+  verified either by full local test suite (BLOCK-1, BLOCK-2, ASK-1) or
+  by direct functional verification of the extracted logic against real
+  env vars matching the architect's own reproduction technique (BLOCK-3,
+  since the shell control flow itself can't run without a `.venv` here).
+- **Win condition status: the data-safety boundary now actually holds**
+  under the adversarial cases the review found. What remains, unchanged
+  from round 1: live end-to-end verification of `install.sh`/`start.sh`/
+  `status.sh`'s shell control flow against a real `.venv` — ruled
+  acceptable by the architect to pass to QA, not a builder gap.

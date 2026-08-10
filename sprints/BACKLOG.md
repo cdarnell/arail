@@ -1030,3 +1030,29 @@ non-`ok` DB state: it must become a hard readiness gate — `start` exits
 non-zero rather than booting a lab whose dependent service is broken.
 Until then, this warn-and-continue is the correct, disclosed call, not
 an oversight.
+
+---
+
+## `status --json=instances`'s byte-compatibility guard is self-referential, not a committed golden
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/REVIEW.md`
+round 1, ASK-3 — non-blocking, filed per the review's own instruction.
+
+**The gap.** ARCHITECTURE.md's F7/test 27 called for `--json=instances`
+compared against a **committed golden file**, byte-for-byte. What shipped
+instead (`tests/cli/status_driver.sh`'s T12/T27 scenario) is an
+internal-consistency check: (a) no `db`/`origin` key ever appears in a
+`--json=instances` row, and (b) stripping those same keys back out of
+`--json`'s (full-mode) `.instances` reproduces `--json=instances`
+exactly. That's a real, useful property — it does catch this sprint's
+actual risk (the db/origin augmentation leaking into the byte-compatible
+mode) — but it's self-referential: a change that broke both modes
+**identically** (e.g. renamed `slug` to `id` in both renderers at once)
+would pass this check while still breaking every external script that
+parses `--json=instances`.
+
+**What a future sprint should do:** add a small committed golden file
+(a fixed instances-array fixture, or a snapshot of a known scenario's
+`--json=instances` output) and assert byte-for-byte equality against it,
+the way F7 originally specified — independent of whatever `--json=full`
+happens to produce in the same run.
