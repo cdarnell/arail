@@ -475,6 +475,17 @@ ever lands in `--json`/`--json=full`'s `.instances`. Human mode prints a
 already `ok`/`created`/`updated` — quiet when everything is fine, exactly
 like every other line on this surface.
 
+**When a live instance's data root itself is missing** (the pre-existing
+`data_root_missing` warning), its `db` object is suppressed (`null`)
+rather than reporting the derived state (which would always be
+`pending` — there's nothing there to have a database) — that would be a
+second, misleading complaint about the same underlying fact, naming the
+wrong subsystem. This is a documented, deliberate exception: a live
+instance with a missing data root still does **not** degrade `status`'s
+exit code on its own (unchanged, pre-existing behavior) — the missing
+root is reported, once, as a warning, not amplified into a second
+`db:`-prefixed verdict reason.
+
 Exit: `0` something expected is up and nothing is wrong · `3` degraded
 (up but a service is down, a registry record is stale/unreadable, a
 foreign checkout answers the portal port, **or a live root/instance's db

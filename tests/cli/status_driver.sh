@@ -86,6 +86,23 @@ ok_scenario
 # ---------------------------------------------------------------------------
 # T8b / T10: exactly one LIVE World instance, no root lab -> exit 0, exactly
 # one "root lab: not started" line, zero "not running" root-service rows.
+#
+# BLOCK-5 (REVIEW2.md round 2): cli_test_fabricate_live_instance registers
+# a registry record without ever creating lab/instances/ai/data — this
+# scenario has ALWAYS had a missing data root; adding the db object made
+# that latent fact newly visible and flipped this scenario's exit code
+# from 0 to 3 (a live instance's db reads "pending" against a directory
+# that doesn't exist, and pending on a live lab degrades per §4.4).
+# DELIBERATE RESOLUTION (not the alternative of updating this expectation
+# to 3): suppress the derived db object when data_root_missing is true —
+# "pending" is the wrong word for a database that can't exist because its
+# whole containing directory doesn't, and the missing root is already a
+# reported (deliberately non-degrading) fact via data_root_missing/the
+# "⚠ data root missing" line. Reporting it a second time as a db-specific
+# complaint would be noise pointing at the wrong subsystem. This keeps
+# T10's pre-existing, documented exit-0 contract — asserted here
+# EXPLICITLY (db suppressed, data_root_missing true) rather than the test
+# merely continuing to pass by accident.
 # ---------------------------------------------------------------------------
 _new_scenario repo10
 cli_test_write_stub_ps_for_slugs "$FAKE/stubbin" "ai:${LANCE}"
@@ -97,6 +114,15 @@ kill -0 "$pid_ai10" 2>/dev/null || fail "T10 setup: fabricated instance died bef
 _not_started_count="$(echo "$OUT" | grep -c "root lab: not started" || true)"
 [[ "$_not_started_count" == "1" ]] || fail "T10: expected exactly one 'root lab: not started' line, got $_not_started_count — output:\n$OUT"
 echo "$OUT" | grep -qi "not running" && fail "T10: a root-service 'not running' row leaked through — output:\n$OUT"
+echo "$OUT" | grep -qi "db.*pending" && fail "T10/BLOCK-5: a derived 'db pending' line leaked through for a missing data root — output:\n$OUT"
+OUT_JSON="$( cd "$FAKE" && HOME="$FAKE_HOME" PATH="$FAKE/stubbin:$SAFE_PATH" _timeout 10 bash arailctl status --json </dev/null 2>&1 )"
+echo "$OUT_JSON" | python3 -c '
+import json, sys
+d = json.load(sys.stdin)
+row = next(r for r in d["instances"] if r.get("slug") == "ai")
+assert row.get("data_root_missing") is True, row
+assert row.get("db") is None, ("db must be suppressed, not \"pending\": " + repr(row.get("db")))
+' || fail "T10/BLOCK-5: db suppression check failed — output:\n$OUT_JSON"
 kill "$pid_ai10" 2>/dev/null || true; wait "$pid_ai10" 2>/dev/null || true
 ok_scenario
 

@@ -740,7 +740,15 @@ for row in instances:
             candidates.append(3)
         else:
             candidates.append(0)
-        _row_db = db_by_slug.get(slug, {}).get("db")
+        # BLOCK-5 (REVIEW2.md round 2): when the data root itself is
+        # missing, "db pending" is a derived, redundant complaint about a
+        # directory that isn't there — the real problem (data_root_missing,
+        # already reported below, deliberately non-degrading) is the
+        # cause, not a separate db-subsystem fact worth a second verdict
+        # reason. Suppressed here; the row-level db object is suppressed
+        # the same way in the instances_full augmentation below.
+        _row_db = (None if row.get("data_root_missing")
+                  else db_by_slug.get(slug, {}).get("db"))
         if _row_db and _row_db["state"] in _DB_DEGRADING_STATES:
             reasons.append(f"instance:{slug}:db:{_row_db['state']}")
             candidates.append(3)
@@ -795,7 +803,15 @@ for row in instances:
     slug = row.get("slug", "?")
     entry = db_by_slug.get(slug)
     row["origin"] = (entry or {}).get("origin", "registry")
-    if entry and entry.get("db"):
+    # BLOCK-5: suppress the derived db object when the data root is
+    # missing — "pending" is the wrong word for a database that can't
+    # exist because its whole containing directory doesn't. The row
+    # already carries data_root_missing=True (rendered separately, both
+    # here and in the human view); this avoids a second, misleading
+    # complaint about the same underlying fact.
+    if row.get("data_root_missing"):
+        row["db"] = None
+    elif entry and entry.get("db"):
         row["db"] = entry["db"]
     instances_full.append(row)
 
