@@ -1594,3 +1594,113 @@ scope-ambiguous findings through a ruling before touching them).
 push; `qa_db_ledger_driver.sh` did not get a chance to run this time
 (the job stopped at the `qa_db_seamless_driver.sh` failure, which has no
 `continue-on-error`).
+
+## PR #181 CI findings 3-4 (ARCHITECTURE.md §10, commit a0bcc65) — two more blockers closed, one new issue reported
+
+### Finding 3 — `check_kb_gate`'s predicate was under-scoped
+
+**Ruling: fix the predicate's `declared` term, never the tier.** The old
+predicate decided on `len(approved_paths()) > 0` alone, ignoring
+`compiled_kb.gate_state()`'s four states entirely (QA-6 built those
+specifically to keep "nothing to approve yet" apart from "N approvable
+pages, zero approved"). A clean CI checkout with no corpus at all
+reported identically to the operator's real `ai` World (351 approvable
+pages, 0 approved) — collapsing exactly the distinction QA-6 existed to
+preserve.
+
+Rewrote `check_kb_gate` to call `gate_state(cheap=False)` and implement
+the exact truth table: gate off → `declared=False`; no corpus
+(`approved_count + pending_count == 0`) → `declared=False`,
+not-applicable; corpus exists, nothing approved → `declared=True`,
+`instantiated=False`, required, loud; anything approved and live →
+`declared=True`, `instantiated=True`, OK. `pending_count == -1`
+("not computed") is never read as "no corpus" — the arithmetic already
+fails loud on it without special-casing, since `-1 != 0`. `detail` now
+distinguishes "no corpus to approve yet" from "N page(s) await
+approval" in words.
+
+**The distinction from Finding 2 applied deliberately, not re-derived**:
+`relational_store` could be instantiated unconditionally by the machine,
+so that gap was closed with a workflow (`setup_db_ensure`). `kb_gate`
+cannot — approving knowledge is a consent decision the compiled-kb-
+bootstrap sprint ruled must never happen automatically — so there is no
+workflow fix available here, only the predicate fix. `tier` was not
+touched anywhere in this change; it stays `required` on every row that
+has anything to report.
+
+**The boundary pinned, exactly as asked**:
+`test_kb_gate_operators_real_topology_stays_loud` — `pending_count=351`,
+`approved_count=0` (the operator's measured real case) — asserts
+`declared=True`, `instantiated=False`, `finding=True`, `tier=required`.
+Seven new tests total cover every truth-table row, the `cheap=False`
+call-shape, and the `-1`-stays-loud case. 18/18 pass in
+`tests/test_provisioning.py`; no regressions in the QA provisioning
+suite (still 7 passed, 3 xfailed) or the pkb gate/retrieve-for-agents
+suites.
+
+Commit: `883c568` — `fix(provisioning): Finding 3 — kb_gate predicate under-scoped, fixed at declared not tier`
+
+### Finding 4 — `stat -f` in `qa_db_seamless_driver.sh` S9: portable fix, not a gate
+
+**Agreed, and the contrast with Finding 1 was the reason.** `stat -f
+'%Sp %m'` is BSD/macOS-only; GNU `stat` (every Linux CI runner) rejects
+it outright. Because S9's snapshot string was built from a
+`find -exec shasum ... -exec stat -f ...` pipeline, a failing `stat`
+call still left non-empty output from the `shasum` half — so the
+*permission* half of the assertion (that a sibling's `secrets.env` stays
+`0600`) was silently vacuous on Linux while the comparison still
+appeared to pass. Unlike `T3/daemon-a` (legitimately gated because the
+*product* is platform-gated at that exact boundary), the property here
+— no code path reads/writes/copies a sibling's `secrets.env` — is a
+security invariant and platform-independent; gating it away would make
+a security assertion vacuous on the platform most likely to run CI.
+
+Replaced the `stat -f` pipeline with `_secrets_snapshot()`, a small
+`python3` helper (`os.stat` — identical mode/mtime semantics on every
+target platform) that hashes and stats every `secrets.env` under the
+fixture root. Verified directly against a throwaway fixture (real files
+→ correct sorted output; no files → correctly empty).
+
+**Architect's required addition, applied**: assert the snapshot itself
+produced non-empty output *before* comparing before/after — both right
+after planting the 7 fixture `secrets.env` files, and again after
+`install`+`status`. Closes the exact "one half of a comparison silently
+drops out" pattern the old pipeline was vulnerable to, now an explicit
+guard rather than implicit in the string comparison.
+
+Commit: `0054d4f` — `fix(tests): Finding 4 — portable secrets.env snapshot in qa_db_seamless_driver.sh S9`
+
+### New issue surfaced, reported rather than fixed: S8's sibling-dirs assertion is too strict, and it is NOT a Finding-4-shaped bug
+
+While confirming Finding 4's scope, re-read the CI failure log from the
+prior round more carefully and found that S8's failure (`"a root-lab
+start touched sibling instance dirs" — lab/instances/last-target.json`)
+is **not** a `stat -f` portability issue at all — `grep` confirms S9 is
+the *only* scenario in this driver that ever calls `stat -f`; S8's
+comparison is a plain `find ... | sort` on filenames with no `stat`
+involved. The architect's Finding 4 text describes exactly S9's
+content (secrets.env, permission checks, the security-invariant
+framing) and does not match S8's actual code, so I did not fold S8 into
+this fix.
+
+**What S8 actually is**: `lab/instances/last-target.json` is a
+genuine, pre-existing, unrelated-to-this-sprint feature —
+`inst_write_last_target root` (`scripts/lib/instances.sh`, called from
+`scripts/start.sh:1628`) records "what the operator last started" as
+checkout-wide picker bookkeeping (documented in this repo's own
+`CLAUDE.md`: "the picker's memory... records what the operator last
+STARTED successfully"), and it is written on every root-lab start,
+correctly, by design — it predates this sprint entirely. S8's assertion
+("starting the ROOT lab must not touch any sibling World instance
+file") is too strict: it treats `last-target.json` as if it were
+per-instance data, when it is actually whole-checkout bookkeeping that
+happens to live under the same `lab/instances/` directory as the
+per-instance secrets/data S8 is actually trying to protect.
+
+**Not fixed this round** — no ruling covers it, and per this session's
+standing instruction ("if CI surfaces something new again, report it
+rather than iterating blindly on the runner"), a fourth-then-fifth
+consecutive genuinely-new CI finding is worth a deliberate decision
+(loosen S8's assertion to exclude `last-target.json` specifically, or
+some other resolution), not an improvised one. Left `qa_db_seamless_driver.sh`
+S8 exactly as QA wrote it.
