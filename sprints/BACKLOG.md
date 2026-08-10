@@ -983,3 +983,50 @@ narrowest fully-correct fix would key resumption on a hash of each row's
 between the interrupted run and the resume is also caught — currently
 neither the count check nor a hypothetical path-set check would catch
 that case either.
+
+---
+
+## `arail.dbspec.ensure`'s Atlas-free replay has no CI job proving it stays in sync with `atlas schema diff`
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/ARCHITECTURE.md`
+§8 "Tech debt" — required follow-up ticket #1 before merge.
+
+**The gap.** `arail.dbspec.ensure` is a second, hand-written schema-
+application path alongside the existing Atlas-driven `./arailctl db
+apply`. ARCHITECTURE.md test 4 ("after `ensure_db(apply=True)`, `atlas
+schema diff` reports no statements") is the proof that the two paths
+never diverge — but it is dev-only and skipped whenever the `atlas`
+binary is absent, which is every CI runner and every user machine
+(Assumption 1: atlas is a developer tool, not a user dependency). So the
+one test that would catch `ensure.py`'s replay logic drifting from a
+future `schema.hcl` change never actually runs in CI today.
+
+**What a future sprint should do:** add an `atlas`-bearing CI job
+(install the binary the way a maintainer would, `brew install
+ariga/tap/atlas` or the Linux equivalent) that runs `pytest -k
+test_schema_fidelity_atlas_diff` (or whatever the test ends up named)
+specifically, separate from the main test matrix so a missing `atlas`
+binary elsewhere doesn't silently skip real coverage.
+
+---
+
+## `start`'s DB readiness check warns-and-continues; promote to a hard gate once `arail.db` has a runtime reader
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/ARCHITECTURE.md`
+§4.5 and §8 "Tech debt" — required follow-up ticket #2 before merge.
+
+**The gap.** `./arailctl start` calls `ensure_db(this_instance_data_dir,
+apply=True)` and, on `blocked`/`ahead`/`diverged`/`unavailable`, warns,
+names the exact fixing verb, and **continues booting** rather than
+refusing. This is deliberate for now: as of this sprint, nothing outside
+`src/arail/dbspec/` reads `arail.db` at runtime (verified by grep —
+`repo.py`, 500 lines, has zero runtime consumers), so gating boot on an
+inert store would trade a real outage for a theoretical one.
+
+**What a future sprint should do:** the moment any runtime code path
+starts reading `arail.db` (the first `repo.py` consumer, or any future
+feature built on the relational store), revisit `start`'s behavior on a
+non-`ok` DB state: it must become a hard readiness gate — `start` exits
+non-zero rather than booting a lab whose dependent service is broken.
+Until then, this warn-and-continue is the correct, disclosed call, not
+an oversight.
