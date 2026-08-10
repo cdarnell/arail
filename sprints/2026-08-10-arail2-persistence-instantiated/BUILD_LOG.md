@@ -1438,3 +1438,90 @@ options in `sprints/BACKLOG.md`.
 - **The one merge blocker this task owned is closed**: the CLI driver
   suite now runs in CI, unattended, on every PR and push to main, with a
   verified (not assumed) failure-propagation path.
+
+## PR #181 CI findings (ARCHITECTURE.md §10, commit db60602) — two blockers closed
+
+CI on PR #181 (the branch pushed after the CI-wiring task) surfaced two
+failures. Both were routed through the architect for a ruling before any
+fix, per standing sprint discipline; rulings are in ARCHITECTURE.md §10.
+
+### Finding 1 — `T3/daemon-a` fails on Linux CI
+
+**Ruling: this is a test gap, not a product defect.**
+`scripts/lib/instances.sh:464`'s `daemon_active()` is Darwin-only by
+design (`scripts/install-daemon.sh:35` refuses launchd installation on
+non-Darwin outright), and `T3/daemon-a`/`T3/daemon-b` stub `launchctl`
+and plant a `LaunchAgents` plist with no platform gate of their own — on
+Linux the scenario cannot represent a reachable state and the product is
+correct to report "not daemon."
+
+**Fix**: gated both scenarios on `uname -s == Darwin` in
+`tests/cli/status_driver.sh`. Added a `skip_scenario()` helper (loud —
+prints each skip inline and in the final summary line) so a non-Darwin
+CI run can never silently claim coverage it doesn't have — the
+mandatory condition on this ruling. The comment at the gate is explicit
+that this is scoped to "launchd cannot exist here," not "Linux has no
+supervision" — the second, broader claim would be false (Gentoo's OpenRC
+path genuinely can supervise ARAIL) and the architect was specific that
+writing that broader claim anywhere would be the wrong fix.
+
+**Filed, not fixed** (both required by the ruling, both in
+`sprints/BACKLOG.md`): the real adjacent gap
+(`daemon_active()`'s Darwin-only guard misreports a genuinely
+OpenRC-supervised Gentoo lab as `"foreground"` — out of scope for this
+persistence sprint), and the broader still-open CI-runnable-driver-path
+ticket (the other nine `tests/cli/*.sh` drivers beyond the four this
+sprint wired into CI remain CI-invisible; this exact episode — a
+platform assumption only surfacing once the driver ran somewhere other
+than a macOS dev machine — is the argument for closing it).
+
+Commit: `f442230` — `fix(tests): gate T3/daemon-a and T3/daemon-b on Darwin, loudly`
+
+### Finding 2 — `doctor` exits 3 after `setup`, before the first `start`
+
+**Ruling: fix the lab, not the detector — option (a), wire `ensure_db`
+into `setup.sh`.** The check is correct and reporting the truth: after
+`setup`, that lab's relational store genuinely is not instantiated yet.
+`blueprint-smoke.yml`'s golden path runs `setup → doctor → start`, and
+`ensure_db` was wired into `install` (§4.6) and `start` (§4.5) only —
+`CLAUDE.md` documents `setup && start` as the first-run path, and the
+architect ruled this a design omission in ARCHITECTURE.md itself (no
+§4.6b for `setup`), not builder drift. Severity-tuning
+`relational_store` (options (b)/(c)) was explicitly rejected — it would
+either need a new lifecycle marker (more written-and-never-read state,
+the same class QA already flagged `.arail_ensure_state.json` as an
+instance of) or let a setup that silently fails to create the DB report
+`pending` at `info`/exit 0, making defect A invisible again.
+
+**Fix**: new `setup_db_ensure()` in `scripts/setup.sh`, sequenced after
+`setup_runtime_files` (so `lab/` exists) and after the deps phase (so
+`arail.dbspec.ensure` is importable) in the main setup sequence. A pure
+call site per the architect's explicit constraint — reuses `python -m
+arail.dbspec.ensure <data_dir> --apply --quiet-ok` verbatim, the exact
+shim `install.sh`'s `_install_db_ensure` already uses, so the
+safe-forward/lossy line holds identically; driven by
+`resolve_data_dirs()`, not a hardcoded root; never fails `setup` (warns
+and continues, matching `install`'s degrade-never-hard-fail and
+`start`'s warn-and-continue); no network, no embedder, no Atlas.
+`docs/cli.md`'s `setup` section documents the new behavior.
+
+Commit: `d524f21` — `fix(setup): wire ensure_db into setup — close the setup-then-doctor gap`
+
+### Tickets filed
+
+Commit: `31493ff` — `docs(backlog): file the OpenRC/daemon_active gap and the broader CI-driver-coverage gap`
+
+### Verification
+
+`bash -n` clean on both modified shell scripts (`status_driver.sh`,
+`setup.sh`). `tests/cli/status_driver.sh` and its pytest wrapper
+(`tests/test_cli_status.py`) still self-skip cleanly in this worktree
+(no `.venv`, unchanged reason) — the Darwin gate itself could not be
+exercised end-to-end here since that requires a real venv and (for the
+Linux-gate half) a non-Darwin runner; both are why this went through CI
+rather than only local verification. `git diff --stat -- lab/` empty
+after every commit. No bare `git stash`. Nothing written through
+`make_fake_venv`'s `.venv/lib` symlink (neither fix touches that path).
+
+Pushed to `origin/qukaizen/arail2-persistence-instantiated` so CI
+re-runs against PR #181.
