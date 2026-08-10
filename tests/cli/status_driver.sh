@@ -23,6 +23,22 @@ fail() { echo "FAIL: $1" >&2; exit 1; }
 pass_count=0
 ok_scenario() { pass_count=$((pass_count + 1)); }
 
+# skip_scenario <name> <reason> — a LOUD skip (ARCHITECTURE.md §10 finding
+# 1's condition 1): printed to both stdout (visible in a normal run) and the
+# final summary line, so a non-Darwin CI run never reports full coverage it
+# did not have. Never use this to turn a red assertion green — only for a
+# scenario whose fixture cannot even be constructed on this platform because
+# the PRODUCT itself is gated at the same boundary (see the two call sites
+# below for the specific citation each one rests on).
+skip_count=0
+skip_reasons=()
+skip_scenario() {
+    local name="$1" reason="$2"
+    skip_count=$((skip_count + 1))
+    skip_reasons+=("$name: $reason")
+    echo "SKIP: $name — $reason"
+}
+
 SAFE_PATH="/usr/bin:/bin:/usr/sbin:/sbin"
 WORK="$(cd "$(mktemp -d)" && pwd -P)"
 trap 'rm -rf "$WORK"' EXIT
@@ -378,37 +394,59 @@ ok_scenario
 # once the plist file exists in the shared $FAKE_HOME, a later scenario
 # using a bare $SAFE_PATH (the real system launchctl) would otherwise see
 # whatever this dev machine's REAL launchd actually reports.
+#
+# ARCHITECTURE.md §10 finding 1 (PR #181 CI): these two scenarios stub
+# launchd/plant a LaunchAgents plist, which is meaningless on a platform
+# where daemon supervision cannot exist in the first place —
+# scripts/lib/instances.sh:464's daemon_active() opens with
+# `[[ "$(uname -s)" == "Darwin" ]] || return 1`, and
+# scripts/install-daemon.sh:35 refuses non-Darwin outright ("launchd
+# supervision is macOS-only"). On Linux the scenario cannot pass and the
+# PRODUCT is behaving correctly — gating the test at the same boundary the
+# product already documents is legitimate; it would NOT be legitimate to
+# gate a test whose failure reflects an actual product gap. This is
+# specifically NOT "Linux has no supervision" — Gentoo's OpenRC path
+# (scripts/gentoo-bootstrap.sh:182, `rc-update add arail-portal default`)
+# genuinely CAN supervise ARAIL, and daemon_active()'s Darwin-only guard
+# means `status` currently misreports that lab as "foreground" — a real,
+# separate, pre-existing observability gap, filed in sprints/BACKLOG.md,
+# not fixed here (out of scope for this sprint).
 # ---------------------------------------------------------------------------
-_new_scenario repo_daemon_a
-mkdir -p "$FAKE_HOME/Library/LaunchAgents"
-: > "$FAKE_HOME/Library/LaunchAgents/io.arail.portal.plist"
-mkdir -p "$FAKE/stubbin"
-cat > "$FAKE/stubbin/launchctl" <<'EOF'
+if [[ "$(uname -s)" == "Darwin" ]]; then
+    _new_scenario repo_daemon_a
+    mkdir -p "$FAKE_HOME/Library/LaunchAgents"
+    : > "$FAKE_HOME/Library/LaunchAgents/io.arail.portal.plist"
+    mkdir -p "$FAKE/stubbin"
+    cat > "$FAKE/stubbin/launchctl" <<'EOF'
 #!/usr/bin/env bash
 case "$1 $2" in
     "list io.arail.portal") printf '{\n\t"PID" = 4242;\n\t"LastExitStatus" = 0;\n};\n'; exit 0 ;;
 esac
 exit 0
 EOF
-chmod +x "$FAKE/stubbin/launchctl"
-OUT="$( cd "$FAKE" && HOME="$FAKE_HOME" PATH="$FAKE/stubbin:$SAFE_PATH" _timeout 10 bash arailctl status --json 2>&1 )"; RC=$?
-echo "$OUT" | grep -q '"mode": "daemon"' || fail "T3/daemon-a: supervision.mode should be 'daemon' — output:\n$OUT"
-echo "$OUT" | grep -q '"pid": 4242' || fail "T3/daemon-a: agents[].pid should be 4242 — output:\n$OUT"
-ok_scenario
+    chmod +x "$FAKE/stubbin/launchctl"
+    OUT="$( cd "$FAKE" && HOME="$FAKE_HOME" PATH="$FAKE/stubbin:$SAFE_PATH" _timeout 10 bash arailctl status --json 2>&1 )"; RC=$?
+    echo "$OUT" | grep -q '"mode": "daemon"' || fail "T3/daemon-a: supervision.mode should be 'daemon' — output:\n$OUT"
+    echo "$OUT" | grep -q '"pid": 4242' || fail "T3/daemon-a: agents[].pid should be 4242 — output:\n$OUT"
+    ok_scenario
 
-_new_scenario repo_daemon_b
-mkdir -p "$FAKE/stubbin"
-cat > "$FAKE/stubbin/launchctl" <<'EOF'
+    _new_scenario repo_daemon_b
+    mkdir -p "$FAKE/stubbin"
+    cat > "$FAKE/stubbin/launchctl" <<'EOF'
 #!/usr/bin/env bash
 exit 1
 EOF
-chmod +x "$FAKE/stubbin/launchctl"
-OUT="$( cd "$FAKE" && HOME="$FAKE_HOME" PATH="$FAKE/stubbin:$SAFE_PATH" _timeout 10 bash arailctl status --json 2>&1 )"; RC=$?
-echo "$OUT" | grep -q '"mode": "foreground"' || fail "T3/daemon-b: supervision.mode should be 'foreground' — output:\n$OUT"
-echo "$OUT" | grep -q '"plists_installed": true' || fail "T3/daemon-b: plists_installed should be true (installed but inactive) — output:\n$OUT"
-OUT_H="$( cd "$FAKE" && HOME="$FAKE_HOME" PATH="$FAKE/stubbin:$SAFE_PATH" _timeout 10 bash arailctl status 2>&1 )"
-echo "$OUT_H" | grep -qi "installed but inactive" || fail "T3/daemon-b: human view lost the 'installed but inactive' line — output:\n$OUT_H"
-ok_scenario
+    chmod +x "$FAKE/stubbin/launchctl"
+    OUT="$( cd "$FAKE" && HOME="$FAKE_HOME" PATH="$FAKE/stubbin:$SAFE_PATH" _timeout 10 bash arailctl status --json 2>&1 )"; RC=$?
+    echo "$OUT" | grep -q '"mode": "foreground"' || fail "T3/daemon-b: supervision.mode should be 'foreground' — output:\n$OUT"
+    echo "$OUT" | grep -q '"plists_installed": true' || fail "T3/daemon-b: plists_installed should be true (installed but inactive) — output:\n$OUT"
+    OUT_H="$( cd "$FAKE" && HOME="$FAKE_HOME" PATH="$FAKE/stubbin:$SAFE_PATH" _timeout 10 bash arailctl status 2>&1 )"
+    echo "$OUT_H" | grep -qi "installed but inactive" || fail "T3/daemon-b: human view lost the 'installed but inactive' line — output:\n$OUT_H"
+    ok_scenario
+else
+    skip_scenario "T3/daemon-a" "launchd supervision is Darwin-only (scripts/install-daemon.sh:35, scripts/lib/instances.sh:464 daemon_active()) — the product refuses non-Darwin daemon install, so this scenario's fixture cannot represent a reachable state here"
+    skip_scenario "T3/daemon-b" "same Darwin-only product gate as T3/daemon-a"
+fi
 
 # ---------------------------------------------------------------------------
 # T28a (load-bearing): nothing running at all AND arail.db has never been
@@ -517,4 +555,10 @@ ok_scenario
 # real env vars and confirming exit 3 (live) / exit 4-never-promoted
 # (nothing running), matching the architect's own reproduction exactly.
 
-echo "OK: ${pass_count} scenario(s) passed — unified status + schema v2 + verdict codes (T3, T8, T10-T12, T27-T29, T34, F2, F18, F20)"
+if [[ "$skip_count" -gt 0 ]]; then
+    echo "SKIPPED: ${skip_count} scenario(s) not run on this platform ($(uname -s)):"
+    for r in "${skip_reasons[@]}"; do
+        echo "  - $r"
+    done
+fi
+echo "OK: ${pass_count} scenario(s) passed, ${skip_count} skipped — unified status + schema v2 + verdict codes (T3, T8, T10-T12, T27-T29, T34, F2, F18, F20)"
