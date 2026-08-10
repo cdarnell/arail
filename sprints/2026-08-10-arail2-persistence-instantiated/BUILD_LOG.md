@@ -768,3 +768,163 @@ recorded here.
   from round 1: live end-to-end verification of `install.sh`/`start.sh`/
   `status.sh`'s shell control flow against a real `.venv` — ruled
   acceptable by the architect to pass to QA, not a builder gap.
+
+## Round 3 (REVIEW2.md — commit e7efcc5, verdict BLOCK, narrow)
+
+All three round-1 BLOCKs verified genuinely fixed by execution (not
+re-touched this round, per the review's own instruction): the allowlist
+held under a fresh, different attack surface (semicolons in strings,
+CTEs, BEGIN/COMMIT wrappers, unterminated comments — 19 new adversarial
+cases, all correct); the ledger-ordering claim was verified by checking
+the DB file doesn't exist after any of seven failure modes; the
+collector is loud (traceback printed, `db:collector-failed` in
+`verdict.reasons`, exit 3, 4-never-promoted preserved) across 16 driver
+scenarios with a working collector; ASK-1 verified from `/tmp`; ASK-2/4/5
+fixed; ASK-3 filed. The architect also closed their own required action
+5 by folding both rounds' debt into ARCHITECTURE.md §8 themselves
+(commit `e7efcc5`) — correctly not something I should have edited.
+
+Two new findings, both fixed this round.
+
+### BLOCK-4 — a leading keyword does not bound what a statement does
+
+`INSERT INTO worlds VALUES (...) ON CONFLICT(id) DO UPDATE SET status=...`
+classified SAFE-FORWARD — the allowlist admitted bare `INSERT INTO`, and
+SQLite's upsert suffix turns it into a row-rewriting statement while the
+prefix still matches. Verified by the review to mutate real data
+(`('w1','active')` → `('w1','WIPED')`). The review named a second,
+structurally identical gap: `CREATE TRIGGER ... BEGIN DELETE FROM y; END`
+classified LOSSY, but only by accident — the naive `;`-split fragments
+the trigger body and the leftover pieces usually (not by any rule) fail
+to parse.
+
+**Checked the committed baseline first**, as instructed: zero `INSERT`
+or `TRIGGER` statements anywhere in `spec/schema/migrations/*.sql`.
+**Chose to drop both keywords from the allowlist entirely**, not guard
+them — the review's stated preference, and consistent with BLOCK-1's own
+lesson: a negative guard against `ON CONFLICT`/`RETURNING` only protects
+against the suffixes named today, the same denylist failure mode BLOCK-1
+already replaced once. Neither keyword is missed: schema migrations
+don't need data DML or triggers, and either can go through the
+non-seamless `./arailctl db apply` path like any other change this
+module refuses to auto-apply.
+
+Applied the structural lesson beyond the two named cases: reviewed every
+remaining allowlisted keyword (`CREATE TABLE`, `CREATE [UNIQUE] INDEX`,
+`CREATE VIEW`, `ALTER TABLE ... ADD COLUMN`) against the question "is
+this statement's entire effect on existing data bounded by its prefix,
+or can something after the prefix change what it does to rows that
+already exist?" All four are pure schema DDL with no form that rewrites
+or deletes an existing row — none have a destructive suffix or an
+unbounded body the way `INSERT` (a suffix) and `CREATE TRIGGER` (a body)
+do. Documented this as the standing test for anyone re-adding a keyword
+in the future, directly in `_ALLOWLIST_RE`'s own comment.
+
+Added both upsert forms and the `CREATE TRIGGER`-body case to the test
+table (24 cases, was 22), asserted LOSSY for the stated structural
+reason. Verified directly against a live `sqlite3` connection that the
+exact exploit the review found now classifies LOSSY.
+
+Commit: `eff30f7` — `fix(dbspec): BLOCK-4 — a leading keyword does not bound what a statement does`
+
+### BLOCK-5 — T10 regressed silently (0 → 3) when the db object landed
+
+A pre-existing, long-standing driver scenario (T10: live `ai` instance,
+missing data root — `cli_test_fabricate_live_instance` registers a
+record without ever creating the data directory) flipped from exit 0 to
+3 once round 2's db object started reporting the derived "pending" state
+against a directory that doesn't exist.
+
+**Decision: suppress the derived db object when `data_root_missing` is
+true, rather than update T10's expectation to 3.** Reasoning (also in
+the commit message and `docs/cli.md`): "pending" is the wrong word for a
+database that can't exist because its whole containing directory
+doesn't — the actionable fact is the missing data root itself, which is
+already reported as a deliberately non-degrading warning
+(`data_root_missing`/"⚠ data root missing"). A second, derived
+`db:`-prefixed complaint about the same underlying fact would be noise
+pointing at the wrong subsystem, and — the deciding factor — it would
+silently change a documented, pre-existing exit-code contract for a
+scenario this sprint never set out to touch. The alternative (updating
+T10 to expect 3) was rejected because a live instance whose data
+directory is simply not there yet (a timing window during boot, or an
+operator who hasn't run `install` yet) is a materially different,
+already-triaged condition from "the db subsystem itself is unhealthy,"
+and conflating them would make `status`'s exit code less diagnostic, not
+more.
+
+Applied symmetrically: the verdict computation (no db-degrade
+candidate/reason when `data_root_missing`), the `--json`/`--json=full`
+augmentation (`"db": null`, not the derived state), and the human
+renderer (no `db:` line). T10 now asserts the chosen behavior explicitly
+— `data_root_missing is True`, `db is None`, no "db pending" line in the
+human view — rather than merely continuing to pass by accident, per the
+review's explicit instruction not to "absorb the change" silently.
+
+Commit: `9173c2a` — `fix(cli): BLOCK-5 — suppress derived db state when a live instance's data root is missing`
+
+### The `make_fake_venv` footgun note — moved to the symlink site
+
+The warning about `.venv/lib` being a live symlink into the real venv's
+site-packages was at the tail of `status_driver.sh`, where the person
+who repeats the mistake (editing `lib.sh`, or writing a new driver) will
+never read it. Moved and expanded directly above the `ln -s
+"$REAL_VENV/lib" ...` line in `tests/cli/lib.sh`, naming the concrete
+incident from round 2 by sprint reference.
+
+**Hardening (per-package symlinks or a read-only tree) was filed, not
+implemented** — the review's own fallback for "if it isn't cheap and
+self-contained." It isn't: it touches shared test-harness infrastructure
+used by every CLI driver, and verifying a change to it doesn't break
+anything requires a real `.venv` to run against, which this worktree
+doesn't have. Filed in `sprints/BACKLOG.md`, along with a second entry
+(also from the review, "the meta-pattern... the shell layer's only real
+test hid something ... twice") for giving the CLI-driver layer an actual
+CI-runnable path instead of universal self-skip.
+
+Commit: `cc66b1d` — `docs(tests): move the make_fake_venv footgun note to the symlink site; file hardening + CI-runnable-driver tickets`
+
+### What round 3 did NOT do
+
+Per the same standing constraints: did not run `install.sh`/`start.sh`
+against the operator's real lab, did not seek authorization to. Did not
+build a collector-kill test (QA's explicit assignment per REVIEW2.md,
+reiterated this round: "don't pre-empt it by writing through that
+symlink yourself"). Did not implement `make_fake_venv` hardening (filed,
+reasoning above). Did not touch `lab/` — confirmed empty diff after
+every commit.
+
+### Full regression sweep after round 3
+
+```
+PYTHONPATH=src python3 -m pytest tests/test_dbspec_ensure.py \
+  tests/test_data_dirs_resolve.py tests/test_data_dirs_resolve_shell_parity.py \
+  tests/test_provisioning.py tests/test_pkb_semantic_backend_absent.py \
+  tests/test_win_condition_honest_failure.py tests/test_seamless_db_integration.py \
+  tests/test_cli_status.py tests/test_pkb.py tests/test_pkb_gate.py \
+  tests/test_pkb_retrieve_for_agents.py tests/test_dbspec_spec.py -q
+```
+124 passed, 1 skipped (unchanged self-skip reason, no `.venv`). `bash -n`
+clean on every modified shell script (`status.sh`, `status_driver.sh`,
+`lib.sh`). `git diff --stat -- lab/` empty at every commit this round —
+zero `lab/` contamination held across all three rounds. No bare `git
+stash` used.
+
+### Final state, round 3
+
+- **4 additional commits**: `eff30f7` (BLOCK-4), `9173c2a` (BLOCK-5),
+  `cc66b1d` (footgun note + 2 BACKLOG tickets), plus this BUILD_LOG
+  update — 24 commits total across three rounds.
+- **Both new BLOCKs fixed and verified**: BLOCK-4 by the full local test
+  suite plus a direct live-sqlite3 reproduction of the exact exploit
+  (now LOSSY); BLOCK-5 by the extracted doc-builder verification
+  technique (matching the architect's own reproduction) plus updated
+  driver assertions.
+- **Data-safety boundary status**: both rounds of adversarial review
+  (round 2's fresh-attack-surface pass, round 3's structural
+  "does the prefix bound the effect?" question) are now closed with
+  fixes, not just patches to the specific cases named. What remains
+  unchanged from prior rounds: live end-to-end shell verification of
+  `install.sh`/`start.sh`/`status.sh` against a real `.venv` — ruled
+  acceptable by the architect to pass to QA in round 2, not revisited
+  as a builder gap in round 3.
