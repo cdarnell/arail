@@ -593,6 +593,11 @@ required action 5). Each is debt the design's own wording hid.
   `UPDATE` that executes later. The safe/lossy line is defined over *effects*;
   the classifier approximates it over *prefixes*. That gap is permanent debt
   for as long as the classifier is regex-based.
+- **`ALTER TABLE … ADD COLUMN … REFERENCES … ON DELETE CASCADE` classifies
+  SAFE-FORWARD and installs a future cascade** (round 3). Second-order — the
+  cascade only fires on a later `DELETE`, which is itself LOSSY and never
+  auto-applied — but it is the same shape of reasoning BLOCK-4 punished:
+  a prefix that does not bound a statement's eventual effect on existing rows.
 - **Two surfaces independently decide what "degrading" means** — `status.sh`'s
   `_DB_DEGRADING_STATES` and `ensure.main()`'s exit-code set. Reconciled by
   hand (ASK-2); nothing enforces that they stay reconciled.
