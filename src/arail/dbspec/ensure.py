@@ -31,17 +31,30 @@ four are real, data-destroying SQLite that the denylist waved through.
 The classifier now works the other way. Every statement in a migration
 file (split via ``_split_statements``) is checked against an explicit
 ALLOWLIST of leading keywords — ``CREATE TABLE``, ``CREATE [UNIQUE]
-INDEX``, ``CREATE VIEW``, ``CREATE TRIGGER``, ``ALTER TABLE … ADD
-COLUMN``, and bare ``INSERT INTO`` (no ``OR REPLACE``/``OR IGNORE``/any
-other modifier between ``INSERT`` and ``INTO``) — and classified
-SAFE-FORWARD only if it matches. **Everything else, including anything
-this classifier does not recognize at all, is LOSSY.** A statement
-prefixed by a comment (so the allowlist regex doesn't match at position
-0) is also LOSSY — a false positive is acceptable; a false negative is
-not, and this now actually holds (test 5 exercises the four verified
-bypasses above plus additional adversarial cases, all correctly LOSSY).
-A migration file is SAFE-FORWARD only if every one of its statements is;
-one non-allowlisted statement anywhere makes the whole file LOSSY.
+INDEX``, ``CREATE VIEW``, and ``ALTER TABLE … ADD COLUMN`` — and
+classified SAFE-FORWARD only if it matches. **Everything else, including
+anything this classifier does not recognize at all, is LOSSY.** A
+statement prefixed by a comment (so the allowlist regex doesn't match at
+position 0) is also LOSSY — a false positive is acceptable; a false
+negative is not, and this now actually holds (test 5 exercises the four
+round-1 verified bypasses plus additional adversarial cases, all
+correctly LOSSY). A migration file is SAFE-FORWARD only if every one of
+its statements is; one non-allowlisted statement anywhere makes the
+whole file LOSSY.
+
+**Round-2 review (BLOCK-4): a leading keyword does not bound what a
+statement DOES.** ``INSERT INTO`` and ``CREATE TRIGGER`` were both
+removed from the allowlist for that reason — see the constant
+``_ALLOWLIST_RE``'s own comment for the specific verified/structural
+danger each one carried and why dropping (not guarding) was chosen.
+Anyone re-adding a keyword to this allowlist in the future must ask the
+same question BLOCK-4 asked: is this statement's *entire* effect on
+existing data bounded by its prefix, or can something after the prefix
+(a suffix clause, a body, a subquery) change what it does to rows that
+already exist? Pure schema DDL (``CREATE TABLE``/``CREATE INDEX``/
+``CREATE VIEW``/``ALTER TABLE … ADD COLUMN``) always is — none of them
+have a form that rewrites or deletes an existing row's data. ``INSERT``
+and ``CREATE TRIGGER`` are not, and stay out.
 
 Ledger verification (§4.2) — REQUIRED before executing anything (BLOCK-2)
 ---------------------------------------------------------------------------
@@ -171,13 +184,43 @@ DEFAULT_SPEC_DIR = Path(__file__).resolve().parents[3] / "spec"
 # a denylist cannot fail closed. A statement is SAFE-FORWARD only if its
 # leading keywords match one of these; anything else, including anything
 # unrecognized, is LOSSY.
+#
+# BLOCK-4 (round-2 review): allowlisting a leading keyword does not bound
+# what the statement DOES — the prefix says nothing about a destructive
+# suffix or body. Two keywords were removed from this allowlist for
+# exactly that reason, neither missed by the committed baseline (checked:
+# `grep -c 'INSERT\|TRIGGER' spec/schema/migrations/*.sql` == 0 in both
+# cases):
+#
+#   INSERT INTO  — SQLite's upsert suffix (`... ON CONFLICT DO UPDATE
+#                  SET ...`) turns a bare INSERT into a row-rewriting
+#                  statement while the "INSERT INTO" prefix still
+#                  matches; verified executable (an existing row's value
+#                  silently overwritten). No negative guard was chosen
+#                  over dropping the keyword — a guard against
+#                  ON CONFLICT/RETURNING/etc. only protects against the
+#                  suffixes named today, the exact "denylist" failure
+#                  mode BLOCK-1 already replaced once. Schema migrations
+#                  don't need data DML; a seeding migration can go
+#                  through the non-seamless `./arailctl db apply` path
+#                  like any other change this module refuses to
+#                  auto-apply.
+#   CREATE TRIGGER — a trigger's BODY (inside BEGIN...END) can contain
+#                  arbitrary DML (DELETE, UPDATE, ...), and that body is
+#                  not bounded by the leading "CREATE TRIGGER" keyword
+#                  at all. It happened to classify LOSSY before this
+#                  fix, but only by accident: `_split_statements`'s
+#                  naive `;`-split fragments a trigger body at its own
+#                  internal semicolons, and the resulting fragments
+#                  usually (not always, and not by any actual rule)
+#                  fail to parse as valid standalone SQL. Safety resting
+#                  on a tokenization accident is not safety — removed
+#                  rather than "fixed to still happen to work."
 _ALLOWLIST_RE = re.compile(
     r"^(CREATE\s+TABLE\b"
     r"|CREATE\s+(UNIQUE\s+)?INDEX\b"
     r"|CREATE\s+VIEW\b"
-    r"|CREATE\s+TRIGGER\b"
-    r"|ALTER\s+TABLE\s+\S+\s+ADD\s+COLUMN\b"
-    r"|INSERT\s+INTO\b)",
+    r"|ALTER\s+TABLE\s+\S+\s+ADD\s+COLUMN\b)",
     re.IGNORECASE,
 )
 

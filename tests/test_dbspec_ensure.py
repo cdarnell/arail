@@ -106,6 +106,28 @@ def test_apply_true_idempotent(tmp_path: Path):
     # Plus the review's other named adversarial cases.
     ("DROP VIEW v1;", "LOSSY"),
     ("DROP TRIGGER t1;", "LOSSY"),
+    # REVIEW2.md BLOCK-4: bare INSERT INTO was removed from the allowlist
+    # entirely (not guarded) after SQLite's upsert suffix was found to
+    # turn it into a row-rewriting statement while the "INSERT INTO"
+    # prefix still matches — verified executable, an existing row's
+    # value silently overwritten. Both forms below, and plain INSERT
+    # INTO on its own, are all now LOSSY by construction (the keyword
+    # simply isn't in the allowlist), not by guessing every dangerous
+    # suffix.
+    ("INSERT INTO worlds VALUES (1);", "LOSSY"),
+    ("INSERT INTO worlds VALUES ('w1','WIPED') "
+     "ON CONFLICT(id) DO UPDATE SET status='WIPED';", "LOSSY"),
+    ("INSERT INTO worlds (id) VALUES (1)\n"
+     "ON CONFLICT DO UPDATE SET status = 2;", "LOSSY"),
+    # REVIEW2.md BLOCK-4: CREATE TRIGGER was also removed from the
+    # allowlist — a trigger's BEGIN...END body can contain arbitrary DML
+    # not bounded by the leading "CREATE TRIGGER" keyword at all. Before
+    # this fix it classified LOSSY only by accident (the naive `;` split
+    # fragmenting the body into pieces that happened not to parse); now
+    # it is LOSSY by construction, for a stated reason, regardless of
+    # what the trigger body contains or how it happens to split.
+    ("CREATE TRIGGER t1 AFTER INSERT ON worlds "
+     "BEGIN DELETE FROM entities; END;", "LOSSY"),
     # A statement the allowlist does not recognize at all — fails closed
     # by default, not by pattern-matching a known-bad form.
     ("PRAGMA foreign_keys = OFF;", "LOSSY"),
