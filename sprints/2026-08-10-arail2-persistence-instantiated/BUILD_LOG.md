@@ -1525,3 +1525,72 @@ after every commit. No bare `git stash`. Nothing written through
 
 Pushed to `origin/qukaizen/arail2-persistence-instantiated` so CI
 re-runs against PR #181.
+
+### CI verification — both assigned findings confirmed fixed; CI surfaced two NEW, unrelated issues
+
+Pushed and waited for PR #181's CI to complete. Results, checked directly
+against the workflow logs and downloaded artifacts, not assumed:
+
+**Finding 1 (T3/daemon-a Darwin gate): confirmed fixed on real Linux
+CI.** `status_driver.sh` and `qa_db_collector_driver.sh` — both hard
+gates in `.github/workflows/db-ensure-ci.yml` — passed cleanly on the
+Ubuntu runner. The Darwin gate correctly skipped the two launchd
+scenarios there (loud skip, per the mandatory condition) without
+affecting the rest of the driver.
+
+**Finding 2 (doctor exit 3 after setup): confirmed fixed.** Downloaded
+`blueprint-smoke-ubuntu-<run>`'s `doctor.log` artifact directly:
+
+```
+── Provisioning (declared vs. instantiated) ────────────────────
+  [required] embedding_provenance  : OK
+  [info    ] instance_registry     : OK
+  [required] kb_gate               : MISSING — gate is on but nothing has ever been approved
+  [required] relational_store      : OK
+  [required] vector_backend        : OK
+```
+
+`relational_store: OK` — `setup_db_ensure()` ran and created the
+database during `setup`, exactly as intended. Compared against `main`'s
+own most recent `Blueprint Smoke` run (`31409244110`, success): main's
+`doctor.log` has **no `Provisioning` section at all** — this sprint's
+entire `arail.provisioning` mechanism (including `relational_store` and
+`kb_gate`) has never been merged to `main`, so this is the *first* time
+it has ever run inside `blueprint-smoke.yml`'s CI job.
+
+**CI is NOT fully green yet — for two reasons, NEITHER of which is
+either of the two findings this task was assigned, and NEITHER of which
+I introduced. Reporting rather than iterating blindly, per instruction.**
+
+1. **`Blueprint Smoke` / "Run doctor" still exits 3** — not because of
+   `relational_store` (fixed, confirmed `OK` above), but because of
+   `kb_gate: MISSING`, a `required`-tier finding from the *already-merged,
+   separate* Compiled-KB gate work (PR #176, `d5c592a`, this sprint's own
+   merge-base). A clean CI checkout has nothing ever approved via `/dac`,
+   so `kb_gate` correctly reports a finding — but this is the first time
+   `blueprint-smoke.yml`'s `doctor` step has ever actually exercised the
+   `provisioning` module in CI at all, so this exact
+   interaction (a fresh checkout's `doctor` exiting 3 on `kb_gate` alone)
+   was never visible until this branch. It is unrelated to persistence,
+   unrelated to either of this task's two assigned findings, and not
+   something I have a ruling to fix.
+2. **`DB-Ensure CLI Drivers` / `qa_db_seamless_driver.sh` fails at S8/S9**
+   on Linux with `stat: cannot read file system information for '%Sp
+   %m': No such file or directory` — `stat -f '%Sp %m'` is BSD/macOS
+   `stat` syntax; GNU `stat` (Linux) uses `-c`, not `-f`, and a different
+   format-string vocabulary entirely. This driver (written by QA in an
+   earlier round of this sprint, not touched by this task or the prior
+   CI-wiring task) has never run on Linux before — the CI-wiring task
+   verified all four drivers against a macOS `.venv`, where this call
+   happens to work. It is a genuine, pre-existing driver
+   portability bug, not a defect in the code the driver is checking.
+
+Neither issue was weakened, worked around, or silently patched — both
+are reported here for the coordinator/architect to rule on, matching
+this sprint's own standing discipline (route data-safety-adjacent or
+scope-ambiguous findings through a ruling before touching them).
+`status_driver.sh`, `qa_db_collector_driver.sh`, and
+`Import and route guardrail`/`DaC Feature Tests` are fully green on this
+push; `qa_db_ledger_driver.sh` did not get a chance to run this time
+(the job stopped at the `qa_db_seamless_driver.sh` failure, which has no
+`continue-on-error`).
