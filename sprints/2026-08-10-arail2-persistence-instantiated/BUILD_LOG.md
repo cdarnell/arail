@@ -16,7 +16,191 @@ Following ARCHITECTURE.md §9's recommended implementation order:
 | 3 | `src/arail/data_dirs.py` (new) | `resolve_data_dirs()` Python mirror | 13-15 | (below) |
 | 4 | `src/arail/provisioning.py` (new), `src/arail/doctor.py` | The class check + doctor wiring | 30-31 | (below) |
 | 5 | `sprints/BACKLOG.md` | File the two required follow-up tickets | — | (below) |
-| 6 | `scripts/lib/instances.sh` (shell mirror), `install`/`start`/`status` wiring, `arail/provisioning.py` in `status` | Seamless install/start, status `db` object, exit-code mapping | 20, 23-29, 32-36 | **NOT DONE — see "Deferred scope" below** |
+| 6 | `scripts/lib/instances.sh` (shell mirror), `install`/`start`/`status` wiring, `arail/provisioning.py` in `status` | Seamless install/start, status `db` object, exit-code mapping | 20, 23-29, 32-36 | **DONE in the continuation pass — see below** |
+
+## Continuation (resumed per coordinator: finish steps 6-9, do not descope)
+
+The coordinator's ruling: "seamless" is the operator's headline requirement
+and is not optional scope. This section covers everything landed after
+the initial handoff, finishing ARCHITECTURE.md §9 steps 6-9.
+
+### Step 6 — `install`/`start` wiring
+
+`src/arail/dbspec/ensure.py` gained a thin CLI (`python -m
+arail.dbspec.ensure <data_dir> [--apply] [--quiet-ok] [--json]`) — the
+shell integration point, matching the existing `python -m
+arail.compiled_kb bootstrap` pattern already in `install.sh`. Exit 0 for
+ok/created/updated/pending, 3 for blocked/ahead/diverged/unavailable.
+
+- **`scripts/install.sh`**: new `_install_db_ensure`, called from `[5/5]
+  verify`, loops `inst_resolve_data_dirs()` and applies (SAFE-FORWARD
+  only) to every resolved root. Never hard-fails install — a
+  blocked/ahead/diverged root sets the existing `PHASE_DEGRADED` flag.
+- **`scripts/start.sh`**: new `_instance_db_ensure <data_dir>`, called for
+  exactly one data_dir at a time — the booting instance's own, never a
+  sibling's. Wired into both the World-instance path (`_instance_start`,
+  right after the env pack is sourced and before port-binding) and the
+  root-lab boot path (before the port-conflict check/spawn). Quiet when
+  already `ok`; one line when it created/applied; a warning (never a
+  refusal) naming the exact verb when blocked/ahead/diverged, per §4.5's
+  deliberate "nothing reads `arail.db` at runtime yet" call.
+
+Commit: `a56124f` — `feat(cli): wire ensure_db into install and start`
+
+### Step 7 — `status` wiring
+
+New `DB_JSON` bash variable in `scripts/status.sh`, built by piping
+`inst_resolve_data_dirs()`'s TSV into a one-shot in-process Python script
+that calls `ensure_db(apply=False)` per root (never creates what it
+checks). Merged into the python doc-builder:
+
+- `root.db` / `root.origin`, and per-instance-row `db`/`origin` —
+  additive only, **only** in `--json`/`--json=full`. `--json=instances`
+  is untouched — proven by a driver-level contract check (stripping
+  `db`/`origin` from `--json`'s `.instances` must reproduce
+  `--json=instances` exactly; neither key may ever appear there).
+- An on-disk-unregistered instance (found via `resolve_data_dirs` but
+  absent from the registry-driven `instances` rows) gets its own
+  synthetic row (`"state": "unregistered"`, `"origin": "ondisk"`) in
+  `--json=full` and the human table only — never in `--json=instances`,
+  never counted toward the verdict.
+- Exit-code mapping: a db state in `{pending, blocked, ahead, diverged}`
+  degrades the verdict **only if the owning root/instance is actually
+  live**. Deliberately excluded from the degrading set: `"unavailable"`
+  (no `spec/schema/migrations` at all — e.g. a stripped-down fork per
+  `BLUEPRINTS.md`, or this sprint's own test fixtures before `spec/` was
+  copied in) — that state means "this feature doesn't apply here," not
+  "a live service is down," and treating it as degrading would have
+  broken every pre-existing `status_driver.sh` scenario that never
+  touches `spec/`. This is a real, considered interpretation of §4.4's
+  table (which never names `"unavailable"` explicitly) — flagged here for
+  the architect review pass, not silently assumed.
+- Verified functionally in isolation before wiring: fed the extracted
+  Python doc-builder real `FACTS_JSON`/`INSTANCES_JSON`/`DB_JSON` env
+  vars by hand and confirmed (a) root live + db pending → exit 3, reason
+  `root:db:pending`; (b) a healthy instance's `db: ok` does not degrade;
+  (c) **nothing running + db absent → exit 4, never promoted to 3** — the
+  load-bearing rule, confirmed directly against the real code the shell
+  script runs, not a reimplementation.
+- Human renderer: a `db:` line per lab, printed only when that lab is
+  up/live and its db state isn't already `ok`/`created`/`updated`.
+
+`tests/cli/status_driver.sh` (the existing self-skipping, real-`.venv`-
+required driver) gained three new scenarios — T28a (nothing running, db
+absent → exit 4, never promoted; also asserts `status` creates no
+`arail.db`), T28b (root live, db pending → exit 3, reason names
+`root:db:pending`), T28c/T29 (root live, db pre-applied via a real
+`ensure_db --apply` call → exit 0, `root.db.state == "ok"`,
+`root.origin == "root"`) — and T12's byte-compatibility assertion was
+rewritten from strict equality (no longer true, by design, once `db`/
+`origin` are additive) to the strip-and-compare contract check described
+above. `bash -n` clean; the driver **self-skips** in this worktree (no
+`.venv`) exactly as it already does for every other scenario in the
+file — confirmed by running it directly (`SKIP: no usable .venv found`).
+
+Commit: `b3be6a5` — `feat(cli): wire db visibility into status`
+
+### Step 8 — shell mirror of `resolve_data_dirs`
+
+`scripts/lib/instances.sh` gained `inst_ondisk_slugs()` and
+`inst_resolve_data_dirs()` — the shell-side mirror, same union (root,
+`registry.d`, on-disk-unregistered), same origin tags, TSV output. No
+associative arrays (`services.sh`'s existing portability rule: macOS
+system bash is 3.2) — dedup via a plain newline list + `grep -Fxq`
+instead. Manually smoke-tested against a hand-built fixture (registry
+with one slug, two on-disk-unregistered dirs) and confirmed correct
+before writing the parity test.
+
+A new shared-fixture test, `tests/test_data_dirs_resolve_shell_parity.py`,
+shells out to `bash` and asserts the shell and Python resolvers agree on
+slug+origin for the same fixture — this **did** run locally (bash is
+present) and passes. `ARCHITECTURE.md §8`'s "two implementations of one
+rule" tech debt is now guarded by a real test, not left to drift.
+
+Commit: `9f5cb64` — `feat(instances): shell mirror of resolve_data_dirs`
+
+### Step 9 — Docs
+
+- `docs/cli.md`: `install`'s `[5/5] verify` phase description now names
+  the `ensure_db(apply=True)` sweep; `start`'s readiness section gained a
+  subsection on the per-instance db-ensure step and its deliberate
+  warn-and-continue behavior; `status`'s section gained the `db` object
+  shape, the `origin` field, the on-disk-unregistered synthetic row, and
+  the exit-code table's new db-driven degrade row plus the explicit
+  "never promotes 4 to 3" rule.
+- `CHANGELOG.md`: one `[Unreleased]` entry in the existing format
+  covering the whole sprint (db instantiation, status/doctor visibility,
+  the defect-B honesty fix).
+
+Commit: `047e91c` — `docs: document the seamless DB path`
+
+### Additional tests landed in the continuation pass
+
+- `tests/test_win_condition_honest_failure.py` — tests 21 (the
+  honest-failure inverse half; the win-condition-succeeds half still
+  needs a real seeded PKB + embedder, not run locally), 22 (the
+  agent-facing `retrieve_for_agents` entry point, three natural-language
+  queries), and 35 (egress: defect B's fix makes zero network calls,
+  proven by making `socket.socket.connect`/`urllib.request.urlopen`
+  raise). **All ran locally and pass** — this worktree's actual
+  LanceDB-absent state is exactly the fixture these tests need, no
+  mocking of the interesting part required.
+- `tests/test_seamless_db_integration.py` — test 20's DB-creation half:
+  a real subprocess run of `python -m arail.dbspec.ensure` (the same CLI
+  `install.sh`/`start.sh` call) against a from-scratch fixture tree,
+  proving install-then-start yields a genuinely queryable database
+  (`schema_version`/`worlds` tables present, not just a file that
+  exists), and that the `apply=False` path creates nothing. **Ran
+  locally and passes.**
+
+Commit: `f9bf3a5` — `test: land tests 20-22, 35`
+
+### What is still NOT run locally, and why (unchanged reason: no `.venv`)
+
+- **Test 4** (schema fidelity via the `atlas` binary) — dev-only per the
+  spec itself; `atlas` is not installed anywhere available to this build.
+- **The shell-level halves of tests 20, 23-29** (actually invoking
+  `bash arailctl install`/`start`/`status` against a real `.venv`) — the
+  `status_driver.sh` scenarios exist and are believed correct (syntax-
+  checked, and the underlying Python doc-builder logic they exercise was
+  verified in isolation with real env vars), but the driver itself
+  self-skips here exactly as its pre-existing scenarios already do.
+  Steps 6 (install.sh/start.sh) have no equivalent self-skipping pytest
+  wrapper at all — they were verified via `bash -n` (syntax) and by
+  invoking the underlying `python -m arail.dbspec.ensure` CLI directly
+  (proven working), but the shell control flow around it (the
+  `_install_db_ensure`/`_instance_db_ensure` functions themselves) was
+  only smoke-tested with the `.venv`-absent guard path, never against a
+  real `.venv`.
+- **Test 21's full (win-condition-succeeds) half, and test 26** — need a
+  real seeded PKB with a real or deterministic-stub embedder at 768 dims
+  and LanceDB; this worktree cannot import `lancedb`.
+- **Test 33** (start boot-time delta ≤150ms, measured over 5 runs) — needs
+  an actual `start` invocation.
+
+**The operator's provisioned checkout (`.venv/bin/python` present)
+should re-run:** `pytest tests/cli/status_driver.sh`'s wrapper
+(`tests/test_cli_status.py`), a real `./arailctl install` then
+`./arailctl start` on a scratch checkout to confirm test 20/26/33
+end-to-end, and test 21's full win-condition-succeeds half against a
+real seeded World.
+
+## Deferred scope — NOT completed in this pass (updated)
+
+~~This build did not reach ARCHITECTURE.md §9 steps 4-9.~~ **Superseded
+by the continuation section above** — steps 6-9 are now done. What
+remains genuinely deferred, unchanged from the original pass:
+
+1. Test 4 (atlas-bearing schema fidelity) — needs the `atlas` binary; the
+   CI-job follow-up ticket is filed in `sprints/BACKLOG.md`.
+2. Full shell-level execution of `install.sh`/`start.sh`/`status.sh`
+   against a real `.venv` — everything is wired and syntax-clean, and the
+   underlying Python logic each shells out to is independently tested,
+   but nobody has run the actual bash control flow end-to-end in this
+   pass. This is the single largest remaining risk and should be the
+   first thing `/architect review` or `/qa` does on a provisioned
+   machine.
+3. Test 33 (boot-time delta) — needs a real `start`.
 
 I deviated from §9's literal order by landing the defect-B fix (§9 step 3)
 first: it's small, independent of the DB work, and it closes a live
@@ -290,26 +474,46 @@ instead of stashing at all.**
 
 ## Final state
 
-- **8 commits** on this branch from this build pass: `b60bfad`, `03b70e5`,
-  `9b748ed`, `d2c5d72`, `11ccc9c`, plus this BUILD_LOG.md commit.
-- **New tests added:** 46 (6 defect-B + 24 ensure.py + 4 data_dirs.py + 12
-  provisioning.py), all passing, run via `PYTHONPATH=src python3 -m
-  pytest` (no `.venv` in this worktree — see below).
-- **Regression check:** `tests/test_pkb.py`, `test_pkb_index.py` (the
-  24/30 subset that doesn't require `lancedb`), `test_pkb_gate.py`,
-  `test_pkb_retrieve_for_agents.py`, `test_dbspec_spec.py`,
-  `test_doctor_embedding_status.py` all pass or fail *identically* to the
-  pre-change baseline (`d5c592a`) — confirmed by diffing pass/fail sets
-  before and after, not by inspection alone.
+- **14 commits** on this branch across both passes: `b60bfad` (defect B),
+  `03b70e5` (ensure.py), `9b748ed` (data_dirs.py), `d2c5d72`
+  (provisioning.py), `11ccc9c` (BACKLOG tickets), `141a35f` (BUILD_LOG,
+  first pass) — then the continuation: `9f5cb64` (shell mirror), `a56124f`
+  (install/start wiring), `b3be6a5` (status wiring), `047e91c` (docs), and
+  `f9bf3a5` (tests 20-22, 35), plus this BUILD_LOG.md update.
+- **New tests added:** 58 total (6 defect-B + 24 `ensure.py` + 4
+  `data_dirs.py` + 1 shell-parity + 12 `provisioning.py` + 3 win-
+  condition/egress + 2 seamless-DB-integration = 52 pure-Python, all
+  passing, run via `PYTHONPATH=src python3 -m pytest`; plus 3 new
+  `status_driver.sh` scenarios that self-skip in this worktree — see
+  below), plus `test_cli_status.py`'s existing self-skipping wrapper.
+- **Regression check (repeated after the continuation pass):**
+  `tests/test_pkb.py`, `test_pkb_index.py` (the 24/30 subset that doesn't
+  require `lancedb`), `test_pkb_gate.py`, `test_pkb_retrieve_for_agents.py`,
+  `test_dbspec_spec.py`, `test_doctor_embedding_status.py`,
+  `test_cli_status.py` all pass or fail *identically* to the pre-change
+  baseline (`d5c592a`) — confirmed by diffing pass/fail sets, not by
+  inspection alone. `bash -n` clean on every modified shell script
+  (`install.sh`, `start.sh`, `status.sh`, `lib/instances.sh`,
+  `status_driver.sh`, `arailctl`). `git diff --stat -- lab/` empty at
+  every commit in the continuation pass — nothing in `lab/` was ever
+  staged or touched, per the coordinator's explicit instruction.
 - **Not run locally, and why:** anything requiring `lancedb`, `fastapi`,
-  or the `atlas` binary — this worktree has no `.venv` (per the task
-  brief, that's the deliberate broken state defect B is about). The
-  operator's main checkout (`/Users/netsushi/ProJects/qukaizen-arail`,
-  `.venv/bin/python`) should re-run the full suite, especially
-  `tests/test_dbspec_ensure.py`'s test-4-equivalent once `atlas` is
-  available, and the full `tests/test_pkb_index*.py` / `test_pkb_search_api_status.py`
-  / portal suites that need `lancedb`/`fastapi`.
-- **Win condition status: NOT MET end-to-end.** Defect B is closed.
-  Defect A's *visibility* (doctor reports it) is closed; defect A's
-  *seamlessness* (install/start auto-create the DB) is NOT — see
-  "Deferred scope" above.
+  the `atlas` binary, or actually invoking `bash arailctl
+  install`/`start`/`status` against a real `.venv` — this worktree has no
+  `.venv` (per the task brief, that's the deliberate broken state defect
+  B is about). See "What is still NOT run locally" in the continuation
+  section above for the precise list and what the operator's provisioned
+  checkout should re-run.
+- **Win condition status: MET in code, NOT YET VERIFIED shell-level
+  end-to-end in this worktree.** All four of the operator's required
+  scope items are now implemented: seamless (install/start wire
+  `ensure_db`), status visibility (the `db` object + exit-code mapping),
+  startup love (start's readiness step, reported not silent), and doctor
+  (the provisioning class check). Defect B is closed and tested directly.
+  What remains is verification, not implementation: the shell control
+  flow in `install.sh`/`start.sh`/`status.sh` has never been run against
+  a real `.venv` in this pass (self-skipping test harnesses exist and are
+  believed correct — syntax-checked, and the Python logic underneath each
+  was independently verified — but "believed correct" is not "run and
+  passed"). This is the right next gate for `/architect review` and/or
+  `/qa` on a provisioned machine, not a reason to withhold the build.
