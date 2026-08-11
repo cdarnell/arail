@@ -983,3 +983,58 @@ narrowest fully-correct fix would key resumption on a hash of each row's
 between the interrupted run and the resume is also caught — currently
 neither the count check nor a hypothetical path-set check would catch
 that case either.
+
+---
+
+## `_resilient_chat_default()`'s "ai-engineer:latest" alias silently resolves to 7B, contradicting its own docstring
+
+**Filed by:** `sprints/2026-08-11-two-slot-chat-models/` Phase 1 (found
+while wiring `_chat_slots_payload()`, deliberately not used there —
+see the function's own docstring at its call site for why).
+
+**The gap.** `_resilient_chat_default()`'s docstring describes
+`"ai-engineer:latest"` as a historical back-compat alias for the ~1B
+default model. In practice it resolves to 7.0B, because
+`arail.model_specs.MODEL_METADATA_OVERRIDES` maps that id to the maximus
+DEEP persona's params, not the ~1B default's. Any caller that trusts the
+docstring and uses this helper to find "the small default" gets a 7B
+model instead — a silent identity substitution, exactly the class of bug
+PR #167's `<8B` ceiling exists to catch (this one just happens to still
+be under the ceiling, so it wouldn't trip that gate). Not fixed this
+sprint — `_chat_slots_payload()` reads the registry's own `model_id`
+directly instead, sidestepping the helper entirely (see its docstring at
+`src/arail/portal/app.py`), so nothing in this sprint's shipped code path
+is affected. Other callers of `_resilient_chat_default()` were not
+audited.
+
+**What a future sprint should do:** grep every call site of
+`_resilient_chat_default()`, confirm whether each one actually wants
+"the registry's configured default" (safe) or "the historically-small
+~1B model" (broken for this one alias) — then either fix the
+`MODEL_METADATA_OVERRIDES` entry, fix the docstring to match reality, or
+special-case the alias in the helper. No owner or target date assigned
+yet.
+
+---
+
+## Chat tab compute-source pills: honest-disabled, not send-path wired
+
+**Filed by:** `sprints/2026-08-11-two-slot-chat-models/` (explicit
+operator scope decision, made before implementation via AskUserQuestion
+— "Honest-disable" over building full multi-provider chat send in the
+same sprint).
+
+**The gap.** The Resident/Deep pickers' "Provider · run on" pills
+(Claude, NVIDIA, OpenRouter, HF, Custom) are real UI with a real,
+truthful disabled state (`sources[].wired`) — clicking a non-`my_machine`
+pill shows "not wired to chat send yet" instead of silently failing at
+send time the way it used to. But the send path itself
+(`/api/chat/stream` and friends) still only really talks to `my_machine`
+in practice; wiring an actual cloud round-trip through the two-slot chips
+was explicitly out of scope for this sprint.
+
+**What a future sprint should do:** wire at least one non-local source
+(Claude is the obvious first target — token-paste UX and
+`_provider_token`/`_fetch_provider_models` plumbing already exist for the
+gallery view) through to a real `/api/chat/stream` call, then flip that
+one source's `wired` flag. No owner or target date assigned yet.
