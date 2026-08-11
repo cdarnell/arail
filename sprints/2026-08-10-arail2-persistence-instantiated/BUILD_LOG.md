@@ -1818,3 +1818,17 @@ Commit: `679bb16` — `ci(blueprint-smoke): stop gating "Run doctor" on exit 0, 
 Pushed both fixes; PR #181 re-ran all four checks. Results verified
 directly against workflow run logs, not assumed — see the report to the
 coordinator for the exact run URLs and conclusions at push time.
+
+### Final CI status — all four checks green
+
+Pushed both fixes (`3e800c0`, `679bb16`) plus this log. All four checks
+on `PR #181` completed successfully:
+
+| Workflow | Job | Conclusion |
+|---|---|---|
+| `Blueprint Smoke` | Import and route guardrail | ✅ success |
+| `Blueprint Smoke` | Golden path smoke (Ubuntu) | ✅ success — `doctor` exited 3 as expected; the step's own `::warning::` annotation names it, and the job still succeeded |
+| `DB-Ensure CLI Drivers` | DB-ensure Python suite + CLI drivers | ✅ success — `status_driver.sh`, `qa_db_collector_driver.sh`, `qa_db_seamless_driver.sh` all genuinely green (S8's `last-target.json` fix confirmed); `qa_db_ledger_driver.sh` failed as expected (QA-13's known, filed gap) but is `continue-on-error`, visible via the job's own annotation rather than hidden |
+| `DaC Feature Tests` | DaC→ARAIL feature suite | ✅ success (unrelated to this sprint, unaffected throughout) |
+
+No fifth new CI finding surfaced. This is the merge-ready state.
