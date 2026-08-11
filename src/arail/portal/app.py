@@ -9022,6 +9022,15 @@ async def api_chat_models(provider: str = ""):
     # not one per model — a short-timeout, cached-on-failure snapshot of
     # which Ollama-runtime rows are actually resident right now.
     ollama_warm_ids = _ollama_ps_resident_ids()
+    # C-CEILROW: family lookup for the "Built with Llama" attribution
+    # (NOTICE:36-46) — built once from the catalog gallery_view() already
+    # fetched above, keyed by the catalog's bare id (Ollama rows carry a
+    # tag, e.g. "llama-ai-eng:latest"; _build_local_model_entry strips it).
+    catalog_family_by_id = {
+        e["id"]: e.get("family")
+        for e in gallery.get("catalog", [])
+        if e.get("id")
+    }
     local_entries = [
         _build_local_model_entry(
             entry.get("id", ""),
@@ -9034,6 +9043,7 @@ async def api_chat_models(provider: str = ""):
             free_gb=float(memory_snapshot.get("free_gb") or 0.0),
             warm=(str(entry.get("runtime") or "") == "ollama"
                   and str(entry.get("id") or "") in ollama_warm_ids),
+            catalog_family=catalog_family_by_id,
         )
         for entry in gallery.get("installed", [])
         if entry.get("id")
@@ -9074,6 +9084,15 @@ async def api_chat_models(provider: str = ""):
                     source["id"] in _LOCAL_COMPUTE_SOURCES
                     or bool(_provider_token(source["id"]))
                 ),
+                # Honest-disable (sprints/2026-08-11-two-slot-chat-models):
+                # every non-local source reaches this list, but only
+                # my_machine/aerollm are actually wired to the send path —
+                # picking any other one refuses at send time today with
+                # cloud_backend_not_wired (see _prepare_chat_context). The
+                # Phase 5 picker disables unwired pills with this reason
+                # at click time instead of letting the user discover the
+                # refusal after sending.
+                "wired": source["id"] in _LOCAL_COMPUTE_SOURCES,
             }
             for source in _compact_compute_sources(active_provider)
         ],
@@ -9104,6 +9123,16 @@ async def api_chat_models(provider: str = ""):
         "status_path": "/api/chat/model-load",
     })
 
+    # The two-slot model (sprints/2026-08-11-two-slot-chat-models): resident
+    # (tier0-local) + deep (tier1-aerollm), read from the registry — the
+    # single source of truth the Phase 5 picker replaces five overlapping
+    # affordances with. Never let a registry hiccup break the whole
+    # endpoint; the rest of this payload is still useful without it.
+    try:
+        slots = _chat_slots_payload(ollama_warm_ids=ollama_warm_ids)
+    except Exception as e:  # noqa: BLE001
+        slots = {"resident": None, "deep": None, "error": f"{type(e).__name__}: {e}"}
+
     return {
         "backend": backend_name,
         "provider": active_provider,
@@ -9121,6 +9150,7 @@ async def api_chat_models(provider: str = ""):
         "onboarding": onboarding,
         "local_model_entries": local_entries,
         "fit": current_fit,
+        "slots": slots,
         # (§2.1 / BLOCK-1) top-level `hardware` deleted — the only reader was
         # the frontend, which now reads `compact.hardware` (nested above).
         # Do not re-add a second, unread copy of this field.
@@ -9577,6 +9607,7 @@ def _build_local_model_entry(
     detected_gb: float,
     free_gb: float,
     warm: bool = False,
+    catalog_family: "dict[str, str] | None" = None,
 ) -> dict[str, Any]:
     spec: dict[str, Any] | None = None
     try:
@@ -9597,6 +9628,31 @@ def _build_local_model_entry(
         _streamed = _ms(model_id)
     except Exception:  # noqa: BLE001
         _streamed = False
+
+    # C-CEILROW (sprints/2026-08-11-two-slot-chat-models): per-row ceiling
+    # eligibility for the Resident picker (Phase 5), computed the SAME way
+    # — same (model_id, role="primary", backend) shape, no model_path — as
+    # the live send-path enforcement in _prepare_chat_context. A row's
+    # displayed eligibility can therefore never promise something send-time
+    # will refuse. Never re-derive the threshold here; always go through
+    # the one chokepoint (arail.registry.ceiling).
+    from arail.model_specs import resolve_params_b as _resolve_params_b
+    from arail.registry.ceiling import ModelCeilingViolation, resolve_answering_model
+    try:
+        _prov = resolve_answering_model(model_id, role="primary", backend=runtime)
+        ceiling: dict[str, Any] = {"eligible": True, "role": "primary", "reason": None}
+        params_b, param_source = _prov.params_b, _prov.param_source
+    except ModelCeilingViolation as exc:
+        ceiling = {"eligible": False, "role": "primary", "reason": str(exc)}
+        params_b, param_source = _resolve_params_b(model_id)
+
+    # Llama 3.2 Community License §1.b.i requires "Built with Llama" to
+    # display wherever the model is named — including this picker row
+    # (NOTICE:36-46). Gemma carries no equivalent name-based requirement,
+    # so only the llama family gets an attribution string here.
+    _bare_id = model_id.split(":", 1)[0]
+    _family = (catalog_family or {}).get(_bare_id)
+    attribution = "Built with Llama" if _family == "llama" else None
 
     return {
         "id": model_id,
@@ -9635,6 +9691,14 @@ def _build_local_model_entry(
             f"Detected: {detected_gb:.0f}GB local memory · "
             f"Headroom: {_headroom_summary(estimate_gb, free_gb).replace('Fit: ', '')}"
         ) if detected_gb > 0 and estimate_gb > 0 else None,
+        "params_b": params_b,
+        "param_source": param_source,
+        "ceiling": ceiling,
+        # Resident-picker default filter (Phase 5, chat.html): rows at or
+        # under 3B render by default; "show larger" reveals the rest, up
+        # to whatever the ceiling itself allows (<8B — never further).
+        "slot_default_visible": params_b is not None and params_b <= 3.0,
+        "attribution": attribution,
         "overlay": {
             "compute_source": runtime,
             "gpu_used": "system default",
@@ -9647,6 +9711,120 @@ def _build_local_model_entry(
         "badge": badge,
         "spec": spec,
     }
+
+
+def _chat_slots_payload(*, ollama_warm_ids: "set[str]") -> dict[str, Any]:
+    """The two-slot model: `resident` (registry tier0-local — the small,
+    always-warm answering model) and `deep` (registry tier1-aerollm — the
+    AeroLLM-served secondary). Single source of truth is the registry; the
+    Chat tab's picker (Phase 5) reads this block instead of the five
+    overlapping affordances it replaces. See docs/chat-studio.spec.md §3
+    and sprints/2026-08-11-two-slot-chat-models/.
+
+    Both entries reuse the SAME ceiling chokepoint (resolve_answering_model)
+    the send path enforces in `_prepare_chat_context`, called with the
+    identical (model_id, role, backend) shape — no model_path — so a slot's
+    displayed eligibility can never promise something send-time will refuse.
+
+    AirLLM is intentionally NOT folded into `deep` — it stays the separate,
+    opt-in `optional_backends` entry it already is: a different backend
+    with a genuinely different (and honest) regime, real layer-streaming,
+    vs. aeroLLM's full residency once loaded (C4/F-OVERSELL above). `deep`
+    here is strictly the aeroLLM/tier1-aerollm mapping.
+
+    Several fields below are intentionally inert placeholders — `pinned`
+    reflects today's static, global ARAIL_OLLAMA_KEEP_ALIVE rather than a
+    real per-model pin, `keepwatch.enabled` is always False, and the deep
+    slot's `ring_depth`/`swap` describe mechanisms that don't exist yet.
+    Phase 3 (resident pin + keep-watch loop) and Phase 4 (ring-depth
+    wiring + in-process swap) replace these with the real thing; the
+    schema is stable now so the frontend (Phase 5) can be built against it
+    without another payload-shape churn.
+    """
+    from arail.registry import get_registry
+    from arail.registry.store import TIER0_ID, TIER1_ID
+    from arail.registry.ceiling import ModelCeilingViolation, resolve_answering_model
+    from arail.model_specs import resolve_params_b as _resolve_params_b
+    from arail import hardware as _hardware
+    from arail.portal.model_warmth import _tier1_resident
+
+    reg = get_registry()
+    reg._ensure_loaded()
+
+    resident: dict[str, Any] | None = None
+    t0 = reg.entries.get(TIER0_ID)
+    if t0 is not None:
+        # Deliberately NOT _resilient_chat_default() here: that helper's
+        # fallback chain can substitute an entirely different installed
+        # model (its own docstring's "ai-engineer:latest" back-compat
+        # entry resolves to 7.0B via the MODEL_METADATA_OVERRIDES table —
+        # the maximus DEEP persona, not a historical alias for the ~1B
+        # default) — exactly the silent identity substitution PR #167's
+        # ceiling exists to catch. The slots payload must show the
+        # registry's actual configured model, not a same-ish-name stand-in.
+        # The only normalization needed here is Ollama's implicit
+        # ":latest" tag, for the warm-set membership check below.
+        r_model_id = t0.model_id
+        try:
+            prov = resolve_answering_model(r_model_id, role="primary", backend=t0.backend)
+            r_ceiling: dict[str, Any] = {"eligible": True, "role": "primary", "reason": None}
+            r_params_b, r_param_source = prov.params_b, prov.param_source
+        except ModelCeilingViolation as exc:
+            r_ceiling = {"eligible": False, "role": "primary", "reason": str(exc)}
+            r_params_b, r_param_source = _resolve_params_b(r_model_id)
+        pin_env = os.getenv("ARAIL_OLLAMA_KEEP_ALIVE", "2h").strip()
+        warm_candidates = (
+            {r_model_id, f"{r_model_id}:latest"} if t0.backend == "ollama_native" else set()
+        )
+        resident = {
+            "entry_id": t0.id,
+            "model_id": r_model_id,
+            "display_name": t0.display_name,
+            "runtime": t0.backend,
+            "params_b": r_params_b,
+            "param_source": r_param_source,
+            "warm": bool(warm_candidates & ollama_warm_ids),
+            "health": t0.health.status,
+            "ceiling": r_ceiling,
+            "pinned": pin_env == "-1",
+            "keepwatch": {"enabled": False, "interval_sec": None},
+        }
+
+    deep: dict[str, Any] | None = None
+    t1 = reg.entries.get(TIER1_ID)
+    if t1 is not None:
+        try:
+            prov = resolve_answering_model(t1.model_id, role="secondary", backend="aerollm")
+            d_eligible, d_reason = True, None
+            d_params_b, d_param_source = prov.params_b, prov.param_source
+        except ModelCeilingViolation as exc:
+            d_eligible, d_reason = False, str(exc)
+            d_params_b, d_param_source = _resolve_params_b(t1.model_id)
+        deep = {
+            "entry_id": t1.id,
+            "model_id": t1.model_id,
+            "display_name": t1.display_name,
+            "installed": _is_aerollm_installed(),
+            "model_ready": _aerollm_model_ready(t1.model_id),
+            "resident": _tier1_resident(),
+            "params_b": d_params_b,
+            "param_source": d_param_source,
+            "cap_b": _hardware.secondary_model_cap_b(),
+            "eligible": d_eligible,
+            "reason": d_reason,
+            "regime": "aerollm_resident",
+            "ring_depth": None,
+            "ring_depth_source": None,
+            "restart_note": (
+                "Changing the deep model applies on next load. Ring-depth "
+                "profile changes require a Runtime restart (construction-time only)."
+            ),
+            "available_in_tier": _current_tier() == "maximus",
+            "upgrade_command": "./arailctl upgrade maximus",
+            "swap": "requires_restart",
+        }
+
+    return {"resident": resident, "deep": deep}
 
 
 @app.get("/api/chat/system-prompt")
