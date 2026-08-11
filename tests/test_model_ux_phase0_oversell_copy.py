@@ -103,14 +103,20 @@ def test_chat_html_streamed_badge_does_not_hardcode_airllm_for_any_row():
 
 
 def test_chat_html_deep_entries_verdict_is_warmth_driven_not_installed_bool():
-    """F-OVERSELL's central site: the deepEntries mapping used to set
-    `fit.verdict = o.installed ? 'streaming' : 'not installed'` — a literal
-    lie for aeroLLM. Must branch on backend id and never emit 'streaming'
-    for aerollm."""
+    """F-OVERSELL's central site, relocated (sprints/2026-08-11-two-slot-
+    chat-models Phase 5): the client-synthesized `deepEntries` mapping
+    (which set `fit.verdict = o.installed ? 'streaming' : 'not installed'`
+    — a literal lie for aeroLLM) is gone. aeroLLM now gets its own
+    dedicated Deep picker (renderDeepPicker), fed by the server's real
+    `slots.deep` block (residency probed via model_warmth._tier1_resident,
+    never an `installed` bool). Verdict must still be warmth-driven and
+    must never say 'streaming' for aerollm."""
     text = _chat_html_text()
     assert "o.installed ? 'streaming' : 'not installed'" not in text
-    assert "o.id === 'aerollm'" in text
-    assert "o.resident ? 'Resident' : 'Ready to load'" in text
+    assert (
+        "fit: { verdict: deep.resident ? 'Resident' : "
+        "(deep.model_ready ? 'Ready to load' : 'Not installed') },"
+    ) in text
 
 
 def test_models_catalog_gemma_moe_entry_is_not_labeled_apache():
