@@ -216,16 +216,30 @@ ok_scenario
 # S8 (F4): starting the ROOT lab must not create or touch any sibling
 # World instance's database. Per-instance scope is a data-isolation
 # property, not a tidiness one.
+#
+# EXEMPTION (ARCHITECTURE.md §10, fix 1 — CI feedback on PR #181):
+# lab/instances/last-target.json is explicitly excluded from this
+# comparison. It is genuine, documented, whole-CHECKOUT bookkeeping —
+# scripts/lib/instances.sh's inst_write_last_target(), described in this
+# repo's own CLAUDE.md as "the picker's memory... records what the
+# operator last STARTED successfully" — and it is written on EVERY root
+# or World start, by design, predating this sprint entirely. It is not
+# per-instance state, even though it happens to live in the same
+# directory as per-instance data/secrets. Name it explicitly here, never
+# widen this to the whole directory or to "any" change: the property S8
+# exists to protect — that starting the root lab does not disturb a
+# World INSTANCE's own state — must still be asserted for everything
+# else under lab/instances/.
 # ---------------------------------------------------------------------------
 _new_scenario repo_s8
 write_stub_uvicorn_serving "$FAKE"
 _six_roots_fixture "$FAKE"
-sib_before="$(find "$FAKE/lab/instances" -type f | LC_ALL=C sort)"
+sib_before="$(find "$FAKE/lab/instances" -type f ! -name 'last-target.json' | LC_ALL=C sort)"
 _run_start "$FAKE" "$WORK/s8-fixture.json"
 OUT_START3="$OUT_START"
-sib_after="$(find "$FAKE/lab/instances" -type f | LC_ALL=C sort)"
+sib_after="$(find "$FAKE/lab/instances" -type f ! -name 'last-target.json' | LC_ALL=C sort)"
 [[ "$sib_before" == "$sib_after" ]] \
-    || fail "S8: a root-lab start touched sibling instance dirs:\n$(diff <(echo "$sib_before") <(echo "$sib_after"))"
+    || fail "S8: a root-lab start touched sibling instance dirs (last-target.json excluded — see comment above):\n$(diff <(echo "$sib_before") <(echo "$sib_after"))"
 [[ -f "$FAKE/lab/data/arail.db" ]] || fail "S8: root db was not created\n$OUT_START3"
 ok_scenario
 
