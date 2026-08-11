@@ -120,6 +120,22 @@ def get_deep_router():
         return _deep_router
 
 
+def invalidate_deep_router() -> None:
+    """Drop the cached deep (aeroLLM) router so the next get_deep_router()
+    call re-resolves (sprints/2026-08-11-two-slot-chat-models Part 4).
+
+    Called after an in-process deep-model swap replaces the underlying
+    AeroLLMBackend singleton — without this, get_deep_router() would keep
+    returning a ModelRouter wrapping the just-closed backend instance
+    forever (it's cached unconditionally once built). Public and safe to
+    call from production code, unlike _reset_for_tests (which also drops
+    the unrelated _fast_router cache — this touches only _deep_router).
+    """
+    global _deep_router
+    with _lock:
+        _deep_router = None
+
+
 _fast_cfgv: "int | None" = None
 
 

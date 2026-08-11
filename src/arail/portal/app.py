@@ -7012,7 +7012,38 @@ def _prepare_chat_context(
     if wants_deep:
         try:
             assert optional_backend_name is not None
-            deep_backend = _get_optional_chat_backend(optional_backend_name)
+            # Part 4 (sprints/2026-08-11-two-slot-chat-models) fix: pass
+            # the requested model through the SAME identity check the
+            # load path already enforces. Before this, a mismatch here
+            # fell through to the generic model_name relabel below —
+            # `active_backend.model_name = override_model` — which is
+            # cosmetic for the deep backend (unlike Ollama, where mutating
+            # model_name really does change what gets requested):
+            # generation would proceed against whatever checkpoint was
+            # ACTUALLY resident while the reply claimed to be from the
+            # requested model. Refusing here means that relabel block can
+            # never fire a mismatched rename for deep_backend again — by
+            # the time it runs, identity is already guaranteed to agree.
+            deep_expected = (model_override or "").strip() or None
+            deep_backend = _get_optional_chat_backend(
+                optional_backend_name, expected_model=deep_expected)
+        except _ChatBackendModelMismatch as exc:
+            activity_log.emit(
+                "chat",
+                f"Deep send refused: requested {exc.requested_model!r}, "
+                f"{exc.backend_name} resident with {exc.resident_model!r}",
+                "warn",
+            )
+            return {"error_result": {
+                "reply": (
+                    f"'{exc.requested_model}' isn't the loaded deep model "
+                    f"(currently '{exc.resident_model}' is resident) — "
+                    f"load it from the Deep picker first."
+                ),
+                "backend": None,
+                "model": exc.requested_model,
+                "error": str(exc),
+            }}
         except Exception as e:  # noqa: BLE001
             activity_log.emit(
                 "chat",
@@ -7814,12 +7845,20 @@ async def api_chat_eject(request: Request):
     happened — it is never an unconditional `{"ok": True}` (F-EJECTLIE,
     F-EJECT-OLLAMA-FALSE). Behavior per runtime:
 
-        airllm/aerollm — CANNOT be hot-freed this sprint (A3): the resident
-            weights live in `AeroLLMBackend._shared` / `deep_policy.
-            _deep_router`, not in the thin `_OPTIONAL_CHAT_BACKEND_CACHE`
-            wrapper this endpoint could drop. Always `ok=False,
-            requires_restart=True`; `freed` stays empty — dropping the
-            wrapper frees nothing real, so it is never reported as freed.
+        aerollm — REAL teardown (sprints/2026-08-11-two-slot-chat-models
+            Part 4): AeroLLMBackend._close() drops the Runtime on its own
+            pinned worker thread and the singleton is evicted from
+            AeroLLMBackend._shared — A3's old restriction (weights lived
+            outside the wrapper this endpoint could drop) is resolved.
+            `ok` tracks whether that actually succeeded; a quiesce
+            failure (a generation genuinely mid-flight) is `ok=False,
+            requires_restart=True` — never a false success. The auto-
+            preload loop re-warms within ~5 min unless
+            ARAIL_AEROLLM_PRELOAD=0, disclosed in `notes`.
+        airllm         — still CANNOT be hot-freed (A3, unchanged, out of
+                         scope for Part 4): subprocess-isolated with a
+                         different lifecycle shape. Always `ok=False,
+                         requires_restart=True`; `freed` stays empty.
         ollama         — invoke `ollama stop <model>`. `ok` tracks the real
                          subprocess result (`returncode == 0`, no exception)
                          — a failure is `ok=False`, never a false success.
@@ -7827,10 +7866,14 @@ async def api_chat_eject(request: Request):
                          freed in-process. `ok=False, requires_restart=True`.
         mlx/cpu/cuda   — in-process backend; restart required.
                          `ok=False, requires_restart=True`.
-        (blank/unknown) — clears every cached optional backend wrapper;
+        (blank/unknown) — clears every cached optional backend wrapper.
+                         Unlike the named `aerollm` case above, this path
+                         still only drops the thin wrapper (no _close()) —
                          `ok=bool(freed)`, plus a note that any cleared
                          deep backend still needs a portal restart to
-                         actually free memory.
+                         actually free memory. (The Chat tab's eject
+                         button always sends an explicit runtime; this
+                         catch-all is an operator/API convenience.)
 
     Returns: {ok, freed: [..], notes: [..], requires_restart}
     """
@@ -7844,16 +7887,50 @@ async def api_chat_eject(request: Request):
     ok = False
     requires_restart = False
 
-    if runtime in ("airllm", "aerollm"):
-        label = _OPTIONAL_CHAT_BACKEND_CONFIG.get(runtime, {}).get("label", runtime)
-        if runtime in _OPTIONAL_CHAT_BACKEND_CACHE:
-            restart_note = f"resident ({label}) · frees on next portal restart"
-            if runtime == "aerollm":
-                restart_note += (
-                    " (auto-preload re-warms within ~5 min unless "
-                    "ARAIL_AEROLLM_PRELOAD=0)"
+    if runtime == "aerollm":
+        # Part 4 (sprints/2026-08-11-two-slot-chat-models): real teardown
+        # — A3's restriction ("the wrapper cache isn't where the resident
+        # weights live") is resolved by AeroLLMBackend._close(), which
+        # drops the Runtime for real on its own pinned worker thread.
+        label = _OPTIONAL_CHAT_BACKEND_CONFIG.get("aerollm", {}).get("label", "aerollm")
+        if "aerollm" not in _OPTIONAL_CHAT_BACKEND_CACHE:
+            notes.append(f"{label} not loaded.")
+            ok = False
+            requires_restart = False
+        else:
+            try:
+                torn_down = _teardown_resident_aerollm()
+            except Exception as e:  # noqa: BLE001
+                notes.append(
+                    f"{label} couldn't be freed — it may be mid-generation; "
+                    f"retry once it finishes ({type(e).__name__}: {e})"
                 )
-            notes.append(restart_note)
+                ok = False
+                requires_restart = True
+            else:
+                if torn_down is not None:
+                    freed.append(f"aerollm:{getattr(torn_down, 'model_name', label)}")
+                    activity_log.emit(
+                        "chat",
+                        f"Ejected {label} ({getattr(torn_down, 'model_name', '')}).",
+                        "info",
+                    )
+                    notes.append(
+                        "auto-preload re-warms within ~5 min unless "
+                        "ARAIL_AEROLLM_PRELOAD=0"
+                    )
+                    ok = True
+                    requires_restart = False
+                else:
+                    notes.append(f"{label} not loaded.")
+                    ok = False
+                    requires_restart = False
+    elif runtime == "airllm":
+        # Subprocess-isolated, no real() teardown wired — A3 stays live
+        # for this provider (out of scope for the Part 4 swap/eject work).
+        label = _OPTIONAL_CHAT_BACKEND_CONFIG.get("airllm", {}).get("label", "airllm")
+        if "airllm" in _OPTIONAL_CHAT_BACKEND_CACHE:
+            notes.append(f"resident ({label}) · frees on next portal restart")
         else:
             notes.append(f"{label} not loaded.")
         # Never ok:True and never claim `freed` — the wrapper cache isn't
@@ -8259,6 +8336,13 @@ class _ChatBackendModelMismatch(Exception):
     is single-model per AEROLLM_MODEL/AIRLLM_MODEL and cannot hot-swap
     (A3) — this signals `_prepare_chat_model_load` to report an honest
     refusal instead of falsely claiming `ready` for the resident model.
+
+    Superseded for `aerollm` specifically by the in-process swap (Part 4,
+    sprints/2026-08-11-two-slot-chat-models) — `_do_load` now attempts
+    `_swap_optional_chat_backend` before ever raising this for that
+    provider. Still the live behavior for `airllm` (subprocess-isolated
+    lifecycle, out of scope for the swap) and as the degraded fallback
+    when an aerollm swap itself fails to quiesce.
     """
 
     def __init__(self, backend_name: str, resident_model: str, requested_model: str):
@@ -8269,6 +8353,140 @@ class _ChatBackendModelMismatch(Exception):
             f"{backend_name} already resident with {resident_model!r}; "
             f"requested {requested_model!r}"
         )
+
+
+class _ChatBackendSwapFailed(Exception):
+    """The in-process deep-model swap (Part 4) could not complete —
+    either the resident runtime wouldn't quiesce (a background generation
+    is genuinely mid-flight) or the new model failed to construct after
+    the old one was already torn down. Distinct from
+    _ChatBackendModelMismatch: this means a swap was ATTEMPTED and
+    failed, not merely refused outright.
+    """
+
+    def __init__(self, backend_name: str, reason: str):
+        self.backend_name = backend_name
+        self.reason = reason
+        super().__init__(f"{backend_name} swap failed: {reason}")
+
+
+def _teardown_resident_aerollm() -> Any:
+    """Quiesce and evict the resident AeroLLMBackend singleton, if any
+    (sprints/2026-08-11-two-slot-chat-models Part 4). Shared by the
+    in-process swap (below) and the real eject path
+    (`POST /api/chat/eject`), which used to be unable to free aerollm at
+    all (A3) — `_close()` now makes that possible.
+
+    Returns the torn-down instance, or None if nothing was resident.
+    Propagates any exception from `_close()` unchanged — callers decide
+    how to report a quiesce failure (a swap failure vs. an honest eject
+    refusal); this function never swallows one into a false success.
+    """
+    from arail.router.backends import AeroLLMBackend
+
+    with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
+        old = _OPTIONAL_CHAT_BACKEND_CACHE.get("aerollm")
+    if old is None:
+        return None
+
+    old._close()  # let exceptions propagate — caller decides how to report
+
+    for key, inst in list(AeroLLMBackend._shared.items()):
+        if inst is old:
+            AeroLLMBackend._shared.pop(key, None)
+    with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
+        if _OPTIONAL_CHAT_BACKEND_CACHE.get("aerollm") is old:
+            _OPTIONAL_CHAT_BACKEND_CACHE.pop("aerollm", None)
+    try:
+        from arail.agents import deep_policy
+        deep_policy.invalidate_deep_router()
+    except Exception:  # noqa: BLE001
+        pass
+    return old
+
+
+def _swap_optional_chat_backend(name: str, expected_model: str) -> Any:
+    """In-process teardown-and-swap of a resident optional backend to a
+    different model (sprints/2026-08-11-two-slot-chat-models Part 4).
+
+    Only supported for `aerollm` — AeroLLMBackend has a real `_close()`
+    that drops the Runtime on its own pinned worker thread. AirLLM is
+    subprocess-isolated with a different lifecycle shape; swapping it is
+    out of scope here, so callers must keep using
+    `_get_optional_chat_backend` (raises `_ChatBackendModelMismatch`,
+    i.e. "requires a portal restart") for that provider.
+
+    Must be called from a worker thread already inside the serialized
+    `chat-model-load` inference slot (i.e. from `_do_load`) — by the time
+    this runs, no other load or chat turn can be mid-flight on the old
+    runtime, because loads are single-flight (`_CHAT_MODEL_LOAD_INFLIGHT`)
+    and chat turns hold the same shared inference slot.
+
+    Sequence, and why the order matters:
+      1. Quiesce + evict the old instance (`_teardown_resident_aerollm`).
+         On failure, the OLD instance is left in the cache/singleton
+         untouched and this raises — the deep slot keeps answering with
+         what it had rather than landing in a torn-down, unusable state.
+      2. Persist the new model (env + registry) BEFORE constructing —
+         never the temporary-env-then-restore pattern: AeroLLMBackend
+         `__new__` recomputes its cache key from the CURRENT env on every
+         call, so restoring the old env after construction would make
+         the next bare `AeroLLMBackend()` (deep_policy, the preload loop)
+         recompute the OLD key and build a SECOND multi-GB copy — the
+         exact double-residency OOM the singleton exists to prevent.
+      3. Construct the new instance and cache it.
+
+    Close-before-construct bounds peak memory to max(old, new) rather
+    than old+new. Raises `_ChatBackendSwapFailed` on any failure — never
+    silently reports ready for the wrong (or no) model.
+    """
+    if name != "aerollm":
+        raise NotImplementedError(f"in-process swap not supported for {name!r}")
+
+    from arail.router.backends import AeroLLMBackend
+
+    try:
+        _teardown_resident_aerollm()
+    except Exception as exc:  # noqa: BLE001
+        raise _ChatBackendSwapFailed(
+            name,
+            f"couldn't quiesce the resident model — it may be mid-generation; "
+            f"retry once it finishes ({type(exc).__name__}: {exc})",
+        ) from exc
+
+    os.environ["AEROLLM_MODEL"] = expected_model
+    try:
+        from dataclasses import replace as _replace
+
+        from arail.model_specs import resolve_params_b as _resolve_params_b
+        from arail.registry import get_registry
+        from arail.registry.store import TIER1_ID
+
+        reg = get_registry()
+        reg._ensure_loaded()
+        existing_entry = reg.entries.get(TIER1_ID)
+        if existing_entry is not None:
+            params_b, _source = _resolve_params_b(expected_model)
+            reg.add_entry(_replace(
+                existing_entry,
+                model_id=expected_model,
+                display_name=_compact_model_label(expected_model) or expected_model,
+                params_b=params_b,
+                source="user",
+            ))
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("registry", f"Deep swap registry update skipped: {e}", "warn")
+
+    try:
+        new_backend = AeroLLMBackend()
+    except Exception as exc:  # noqa: BLE001
+        raise _ChatBackendSwapFailed(
+            name, f"the new model failed to load: {type(exc).__name__}: {exc}"
+        ) from exc
+    new_backend.backend_name = name
+    with _OPTIONAL_CHAT_BACKEND_CACHE_LOCK:
+        _OPTIONAL_CHAT_BACKEND_CACHE[name] = new_backend
+    return new_backend
 
 
 # C6.6: rolling median of observed load throughput, per runtime — the
@@ -8494,10 +8712,25 @@ async def _prepare_chat_model_load(
         )
 
         def _do_load() -> None:
-            if provider in _OPTIONAL_CHAT_BACKEND_CONFIG:
+            if provider == "aerollm" and model:
+                # Part 4 (sprints/2026-08-11-two-slot-chat-models): a
+                # resident-with-different-model mismatch now attempts an
+                # in-process swap instead of an unconditional "requires a
+                # portal restart" refusal. _swap_optional_chat_backend
+                # raises _ChatBackendSwapFailed (a distinct, honest
+                # failure) if the swap itself can't complete.
+                try:
+                    _get_optional_chat_backend(str(provider), expected_model=model)
+                except _ChatBackendModelMismatch:
+                    _swap_optional_chat_backend("aerollm", str(model))
+            elif provider in _OPTIONAL_CHAT_BACKEND_CONFIG:
                 # C6.3/F-SWITCH: identity-checked — a resident singleton on a
                 # different model raises _ChatBackendModelMismatch instead of
-                # silently reporting ready for the wrong model.
+                # silently reporting ready for the wrong model. (airllm stays
+                # on this path — its subprocess-isolated lifecycle isn't
+                # swap-eligible; aerollm-with-no-model also lands here,
+                # matching the original no-identity-check "just get the
+                # default" behavior.)
                 _get_optional_chat_backend(str(provider), expected_model=model)
             elif runtime in ("ollama", "mlx-openai") and model:
                 # F-FAKEREADY: _get_runtime_backend only constructs the thin
@@ -8563,7 +8796,10 @@ async def _prepare_chat_model_load(
         )
     except _ChatBackendModelMismatch as exc:
         # C6.3/F-SWITCH: honest refusal, never a false "ready" for the
-        # previously-loaded model.
+        # previously-loaded model. (Part 4: aerollm no longer reaches this
+        # branch on a mismatch — it attempts a swap instead; this stays
+        # live for airllm, whose subprocess-isolated lifecycle isn't
+        # swap-eligible.)
         state = _set_chat_model_load_state(
             state="error",
             blocking=False,
@@ -8571,6 +8807,22 @@ async def _prepare_chat_model_load(
                 f"{exc.backend_name} already resident with {exc.resident_model}; "
                 f"switching models requires a portal restart"
             ),
+            eta_seconds=None,
+            progress=None,
+            model=model,
+            runtime=runtime,
+            provider=provider,
+        )
+    except _ChatBackendSwapFailed as exc:
+        # Part 4: a swap was ATTEMPTED (unlike the mismatch case above,
+        # which never tried) and could not complete — the resident model
+        # may now be torn down. Honest about both the failure and, when
+        # it's a quiesce timeout, that the OLD model is still what's
+        # actually resident (construction never started in that case).
+        state = _set_chat_model_load_state(
+            state="error",
+            blocking=False,
+            message=f"Couldn't switch the deep model: {exc.reason}",
             eta_seconds=None,
             progress=None,
             model=model,
@@ -9992,6 +10244,23 @@ def _chat_slots_payload(*, ollama_warm_ids: "set[str]") -> dict[str, Any]:
         except ModelCeilingViolation as exc:
             d_eligible, d_reason = False, str(exc)
             d_params_b, d_param_source = _resolve_params_b(t1.model_id)
+
+        # Part 4: peek at the resident instance's resolved ring_depth
+        # WITHOUT constructing anything (same R5 contract as
+        # model_warmth._tier1_resident) — None (never rendered as a
+        # number) whenever nothing is actually resident yet.
+        ring_depth = None
+        ring_depth_source = None
+        try:
+            from arail.router.backends import AeroLLMBackend
+            for inst in (getattr(AeroLLMBackend, "_shared", None) or {}).values():
+                if getattr(inst, "_runtime", None) is not None:
+                    ring_depth = getattr(inst, "_ring_depth", None)
+                    ring_depth_source = getattr(inst, "_ring_depth_source", None)
+                    break
+        except Exception:  # noqa: BLE001
+            pass
+
         deep = {
             "entry_id": t1.id,
             "model_id": t1.model_id,
@@ -10005,15 +10274,19 @@ def _chat_slots_payload(*, ollama_warm_ids: "set[str]") -> dict[str, Any]:
             "eligible": d_eligible,
             "reason": d_reason,
             "regime": "aerollm_resident",
-            "ring_depth": None,
-            "ring_depth_source": None,
+            "ring_depth": ring_depth,
+            "ring_depth_source": ring_depth_source,
             "restart_note": (
-                "Changing the deep model applies on next load. Ring-depth "
-                "profile changes require a Runtime restart (construction-time only)."
+                "Changing the deep model swaps in-process (no portal "
+                "restart needed). Ring-depth profile changes only take "
+                "effect on the next swap or restart (construction-time only)."
             ),
             "available_in_tier": _current_tier() == "maximus",
             "upgrade_command": "./arailctl upgrade maximus",
-            "swap": "requires_restart",
+            # Part 4: real in-process teardown-and-swap now exists for
+            # aerollm (_swap_optional_chat_backend) — AirLLM stays out of
+            # scope and isn't represented by this slot at all.
+            "swap": "in_process",
         }
 
     return {"resident": resident, "deep": deep}
