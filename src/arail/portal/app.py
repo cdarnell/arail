@@ -6956,11 +6956,47 @@ def _prepare_chat_context(
     # 30B constant. See arail.registry.ceiling.
     # ── End hardware-floor rule ─────────────────────────────────────────
 
+    # C6.3/F-SWITCH, wired up here 2026-08-11 (was only reachable from the
+    # explicit /model-load path — see _ChatBackendModelMismatch's
+    # docstring): AeroLLM/AirLLM are process-wide singletons cached by
+    # backend NAME in _OPTIONAL_CHAT_BACKEND_CACHE, independent of
+    # AeroLLMBackend's OWN model-keyed _shared cache. If AEROLLM_MODEL
+    # changes between requests, _get_optional_chat_backend("aerollm")
+    # without expected_model= silently hands back whatever model is
+    # ALREADY resident (the singleton can't hot-swap), and the
+    # override_model logic below only relabels active_backend.model_name
+    # — a cosmetic string, not a reload — so the system prompt (and the
+    # UI's own picker label) claimed one model while the resident weights
+    # that actually answered were a completely different one the operator
+    # had loaded earlier in the process's lifetime. Passing expected_model
+    # here makes that a loud, honest refusal instead.
     deep_backend = None
     if wants_deep:
         try:
             assert optional_backend_name is not None
-            deep_backend = _get_optional_chat_backend(optional_backend_name)
+            deep_backend = _get_optional_chat_backend(
+                optional_backend_name, expected_model=(model_override or "").strip() or None
+            )
+        except _ChatBackendModelMismatch as e:
+            activity_log.emit(
+                "chat",
+                f"{optional_backend_name} model mismatch: {e}",
+                "warn",
+            )
+            return {
+                "error_result": {
+                    "reply": (
+                        f"{optional_backend_name} is already resident with "
+                        f"'{e.resident_model}' (loaded earlier this session) — it "
+                        f"can't hot-swap to '{e.requested_model}' mid-process. "
+                        f"Restart the lab to pick up the new model, or send this "
+                        f"turn to '{e.resident_model}' instead."
+                    ),
+                    "backend": optional_backend_name,
+                    "model": e.resident_model,
+                    "error": str(e),
+                }
+            }
         except Exception as e:  # noqa: BLE001
             activity_log.emit(
                 "chat",
