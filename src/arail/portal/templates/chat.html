@@ -272,6 +272,9 @@
        Rendered from static model metadata (model_specs); never an LLM call. */
     .compare-strip { display: flex; flex-wrap: wrap; gap: var(--s-2);
       margin-bottom: var(--s-2); font-size: var(--fs-xs); }
+    /* Same [hidden] clobber as .col above — the flex display wins over the
+       browser default unless forced back off explicitly. */
+    .compare-strip[hidden] { display: none !important; }
     .compare-strip .cs-col { flex: 1 1 0; min-width: 0; border: 1px solid var(--border);
       border-radius: var(--radius-s); padding: var(--s-2);
       background: var(--surface2); }
