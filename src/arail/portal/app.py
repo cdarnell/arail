@@ -913,6 +913,12 @@ async def _startup():
                       f"{_boot_ident.name} portal started — {intent_name} lab.",
                       "success")
 
+    # Registry env convergence — local-only, unconditional (see docstring;
+    # deliberately NOT gated behind _autochecks_on, which is about remote
+    # probes, not this). Must run before anything below could construct a
+    # backend off MODEL_NAME/AEROLLM_MODEL.
+    _export_registry_env()
+
     # Model registry: startup preflight (both tiers) + interval health loop.
     # Gated behind ARAIL_AUTOCHECKS (default off) — a quiet boot never probes
     # Ollama or emits "MODEL TIER DOWN". Entries stay `unknown`, which resolves
@@ -6647,6 +6653,41 @@ def _get_primary_router():
     return _ROUTER_CACHE
 
 
+def _export_registry_env() -> None:
+    """Converge env readers on the registry's tier0/tier1 model identity
+    (sprints/2026-08-11-two-slot-chat-models Part 4).
+
+    ``lab/data/secrets.env`` is never loaded into the process environment
+    at boot — it's read on demand, per call, via ``_read_secrets()`` — and
+    the registry is the only thing a UI model pick (Phase 5's picker,
+    ``POST /api/chat/default`` with ``slot=``) writes to. Without this, a
+    pick would be invisible to every OTHER env reader in the same process
+    (``AeroLLMBackend._cache_key``, the residency/health probes,
+    ``_resilient_chat_default``) until the operator also hand-edited .env
+    to match — the registry would say one model, the runtime would answer
+    with another. Runs once per process, early in startup, before
+    anything that could construct a backend off these vars.
+
+    Local-only (no network); safe to run regardless of the autochecks
+    "quiet boot" gate, which is specifically about remote probes. Never
+    raises — a registry hiccup here must not block startup.
+    """
+    try:
+        from arail.registry import get_registry
+        from arail.registry.store import TIER0_ID, TIER1_ID
+        reg = get_registry()
+        reg._ensure_loaded()
+        t1 = reg.entries.get(TIER1_ID)
+        if t1 is not None and t1.model_id:
+            os.environ["AEROLLM_MODEL"] = t1.model_id
+        t0 = reg.entries.get(TIER0_ID)
+        if (t0 is not None and t0.model_id
+                and t0.backend in ("ollama_native", "openai_compat")):
+            os.environ["MODEL_NAME"] = t0.model_id
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("registry", f"Registry env export skipped: {e}", "warn")
+
+
 def _boot_warm_explicit() -> bool:
     """True only when ARAIL_TIER0_BOOT_WARM is EXPLICITLY set to a truthy
     value in this process's environment (sprints/2026-07-29-elite-cli
@@ -7517,14 +7558,56 @@ def _apply_chat_defaults(
         return backend, model, runtime
 
 
+def _registry_write_through_resident(model_id: str) -> bool:
+    """Promote *model_id* to the registry's tier0-local entry (sprints/
+    2026-08-11-two-slot-chat-models Part 4) — so the nav's model switcher
+    and every other registry reader agree with what chat just set as its
+    default, by construction, instead of two systems that can disagree.
+
+    Only called for ollama-runtime picks that already passed the primary
+    ceiling. Never raises; returns False (no-op) on any failure — the
+    chat default itself is already set by the caller regardless.
+    """
+    try:
+        from arail.registry import get_registry
+        from arail.registry.store import TIER0_ID
+        from arail.model_specs import resolve_params_b as _resolve_params_b
+        from dataclasses import replace as _replace
+
+        reg = get_registry()
+        reg._ensure_loaded()
+        existing = reg.entries.get(TIER0_ID)
+        if existing is None:
+            return False
+        params_b, _source = _resolve_params_b(model_id)
+        endpoint = f"http://127.0.0.1:{os.getenv('OLLAMA_PORT', '11434')}/v1"
+        reg.add_entry(_replace(
+            existing,
+            model_id=model_id,
+            backend="ollama_native",
+            endpoint=endpoint,
+            display_name=_compact_model_label(model_id) or model_id,
+            params_b=params_b,
+            source="user",
+        ))
+        return True
+    except Exception as e:  # noqa: BLE001
+        activity_log.emit("registry", f"Resident write-through skipped: {e}", "warn")
+        return False
+
+
 @app.post("/api/chat/default")
 async def chat_default(request: Request):
-    """Set or clear the chat-wide default provider+model (L4).
+    """Set or clear the chat-wide default provider+model (L4), or set one
+    of the two chat slots (sprints/2026-08-11-two-slot-chat-models).
 
-    Body to SET: {provider: str, model: str, runtime: str}
+    Body to SET (resident slot, back-compat default): {provider, model, runtime}
+    Body to SET (deep slot): {slot: "deep", model}
     Body to CLEAR: {clear: true}
 
-    Returns: {ok, provider, model, runtime} or {ok, cleared: true}
+    Returns: {ok, provider, model, runtime, registry_updated} (resident),
+             {ok, slot: "deep", model, registry_updated, requires_restart}
+             (deep), or {ok, cleared: true}.
 
     Airgap: refuses cloud defaults when airgapped (F-DEFAULT-LEAK guard at use
     time is in _apply_chat_defaults; guard at set time is here).
@@ -7536,7 +7619,8 @@ async def chat_default(request: Request):
     except Exception:
         return {"ok": False, "error": "invalid JSON body"}
 
-    # CLEAR path
+    # CLEAR path — scoped to the resident/chat-wide default; unaffected by
+    # `slot` (nothing today asks to clear the deep slot's pick).
     if body.get("clear"):
         secrets = _read_secrets()
         secrets.pop("ARAIL_CHAT_DEFAULT_MODEL", None)
@@ -7544,7 +7628,70 @@ async def chat_default(request: Request):
         os.environ.pop("ARAIL_CHAT_DEFAULT_MODEL", None)
         return {"ok": True, "cleared": True}
 
-    # SET path
+    slot = (body.get("slot") or "resident").strip().lower()
+    if slot not in ("resident", "deep"):
+        return {"ok": False, "error": f"unknown slot '{slot}' — must be 'resident' or 'deep'"}
+
+    # ── DEEP SLOT ─────────────────────────────────────────────────────
+    # Registry write-through only (Part 4) — this does not load the model;
+    # an in-process swap is Phase 4 (backends.py/AeroLLMBackend). Until
+    # then the picked model applies via the existing /api/chat/model-load
+    # flow or the next portal restart, same as any other AEROLLM_MODEL
+    # change has always required.
+    if slot == "deep":
+        model_id = (body.get("model") or "").strip()
+        if not model_id:
+            return {"ok": False, "error": "model is required for slot=deep"}
+
+        from arail.registry.ceiling import ModelCeilingViolation, resolve_answering_model
+        try:
+            resolve_answering_model(model_id, role="secondary", backend="aerollm")
+        except ModelCeilingViolation as exc:
+            return {"ok": False, "error": str(exc)}
+
+        if not _aerollm_model_ready(model_id):
+            return {
+                "ok": False,
+                "error": (
+                    f"'{model_id}' isn't on disk in ARAIL_MODELS_DIR yet — "
+                    f"install it before setting it as the deep slot."
+                ),
+            }
+
+        os.environ["AEROLLM_MODEL"] = model_id
+        registry_updated = False
+        try:
+            from arail.registry import get_registry
+            from arail.registry.store import TIER1_ID
+            from arail.model_specs import resolve_params_b as _resolve_params_b
+            from dataclasses import replace as _replace
+
+            reg = get_registry()
+            reg._ensure_loaded()
+            existing = reg.entries.get(TIER1_ID)
+            if existing is not None:
+                params_b, _source = _resolve_params_b(model_id)
+                reg.add_entry(_replace(
+                    existing,
+                    model_id=model_id,
+                    display_name=_compact_model_label(model_id) or model_id,
+                    params_b=params_b,
+                    source="user",
+                ))
+                registry_updated = True
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit("registry", f"Deep write-through skipped: {e}", "warn")
+
+        activity_log.emit("chat", f"Deep slot default set: model={model_id}", "info")
+        return {
+            "ok": True,
+            "slot": "deep",
+            "model": model_id,
+            "registry_updated": registry_updated,
+            "requires_restart": False,
+        }
+
+    # ── RESIDENT SLOT (default) — original behavior, plus write-through ─
     provider = (body.get("provider") or "").strip().lower()
     model_id = (body.get("model") or "").strip()
     runtime = (body.get("runtime") or "").strip()
@@ -7569,8 +7716,29 @@ async def chat_default(request: Request):
         os.environ["ARAIL_CHAT_DEFAULT_MODEL"] = default_val
 
     _write_secrets(secrets)
+
+    # Registry write-through (Part 4): only for ollama-runtime picks that
+    # pass the primary ceiling. mlx/cloud picks persist as the chat
+    # default only — pinning (Phase 3) and the registry's tier0 identity
+    # apply to Ollama models; the honest story for anything else is "chat
+    # default set, lab-wide Tier 0 unchanged".
+    registry_updated = False
+    if model_id and runtime == "ollama":
+        from arail.registry.ceiling import ModelCeilingViolation, resolve_answering_model
+        try:
+            resolve_answering_model(model_id, role="primary", backend="ollama_native")
+            registry_updated = _registry_write_through_resident(model_id)
+        except ModelCeilingViolation:
+            pass  # chat default still set; just not promoted to tier0
+
     activity_log.emit("chat", f"Chat default set: provider={provider} model={model_id}", "info")
-    return {"ok": True, "provider": provider, "model": model_id, "runtime": runtime}
+    return {
+        "ok": True,
+        "provider": provider,
+        "model": model_id,
+        "runtime": runtime,
+        "registry_updated": registry_updated,
+    }
 
 
 @app.post("/api/chat")
