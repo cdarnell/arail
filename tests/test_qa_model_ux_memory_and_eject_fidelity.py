@@ -514,6 +514,101 @@ def test_eject_ollama_passes_model_as_argv_not_shell_string(monkeypatch):
 
 
 # ===========================================================================
+# Keep-watch suppression on eject (sprints/2026-08-11-two-slot-chat-models
+# Part 3) — a successful eject of the RESIDENT model must not have the
+# background loop immediately re-warm it right back; ejecting some OTHER
+# installed model must not suppress keep-watch on the resident slot at all.
+# ===========================================================================
+
+def test_ejecting_the_resident_model_suppresses_keepwatch(monkeypatch):
+    import arail.portal.app as app_mod
+    from arail.portal import model_warmth
+
+    monkeypatch.setenv("MODEL_NAME", "llama-ai-eng:latest")
+    monkeypatch.setattr(
+        app_mod, "_validate_local_model_id_relaxed", lambda m: (True, "")
+    )
+
+    class _Done:
+        returncode = 0
+        stderr = ""
+        stdout = "stopped"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _Done())
+
+    called = []
+    monkeypatch.setattr(model_warmth, "suppress_tier0_keepwatch", lambda *a, **k: called.append(1))
+
+    client, _ = _client()
+    body = client.post(
+        "/api/chat/eject", json={"runtime": "ollama", "model": "llama-ai-eng:latest"}
+    ).json()
+
+    assert body["ok"] is True
+    assert called == [1], "ejecting the resident model must suppress keep-watch"
+
+
+def test_ejecting_a_different_model_does_not_suppress_keepwatch(monkeypatch):
+    """Ejecting some other installed Ollama model — not the resident slot
+    — must leave keep-watch alone; it only guards the resident model."""
+    import arail.portal.app as app_mod
+    from arail.portal import model_warmth
+
+    monkeypatch.setenv("MODEL_NAME", "llama-ai-eng:latest")
+    monkeypatch.setattr(
+        app_mod, "_validate_local_model_id_relaxed", lambda m: (True, "")
+    )
+
+    class _Done:
+        returncode = 0
+        stderr = ""
+        stdout = "stopped"
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _Done())
+
+    called = []
+    monkeypatch.setattr(model_warmth, "suppress_tier0_keepwatch", lambda *a, **k: called.append(1))
+
+    client, _ = _client()
+    body = client.post(
+        "/api/chat/eject", json={"runtime": "ollama", "model": "some-other-model:latest"}
+    ).json()
+
+    assert body["ok"] is True
+    assert called == [], "ejecting a non-resident model must not suppress resident keep-watch"
+
+
+def test_failed_eject_does_not_suppress_keepwatch(monkeypatch):
+    """Nothing was actually frozen — suppressing keep-watch for a failed
+    eject would just make the resident model incorrectly stay cold."""
+    import arail.portal.app as app_mod
+    from arail.portal import model_warmth
+
+    monkeypatch.setenv("MODEL_NAME", "llama-ai-eng:latest")
+    monkeypatch.setattr(
+        app_mod, "_validate_local_model_id_relaxed", lambda m: (True, "")
+    )
+
+    class _Failed:
+        returncode = 1
+        stderr = "no such model"
+        stdout = ""
+
+    monkeypatch.setattr(subprocess, "run", lambda *a, **kw: _Failed())
+
+    called = []
+    monkeypatch.setattr(model_warmth, "suppress_tier0_keepwatch", lambda *a, **k: called.append(1))
+
+    client, _ = _client()
+    body = client.post(
+        "/api/chat/eject", json={"runtime": "ollama", "model": "llama-ai-eng:latest"}
+    ).json()
+
+    assert body["ok"] is False
+    assert called == []
+
+
+# ===========================================================================
 # (b) REGRESSION — HON-1: rail-card eject clears the warm dot before it
 # confirms the eject succeeded (already filed as a dated follow-up; pinned
 # here as a concrete, reproducible defect so it cannot silently persist).

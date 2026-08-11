@@ -941,6 +941,17 @@ async def _startup():
         except Exception:  # noqa: BLE001
             pass
 
+    # Tier-0 (resident) keep-watch (sprints/2026-08-11-two-slot-chat-models
+    # Part 3; ARAIL_TIER0_KEEPWATCH=0 to disable). Same autochecks gate as
+    # the tier-1 preload above — its ticks probe Ollama's /api/ps, which is
+    # exactly the remote-probe class a quiet boot skips. Fire-and-forget.
+    if _autochecks_on:
+        try:
+            from arail.portal.model_warmth import tier0_keepwatch_loop
+            asyncio.create_task(tier0_keepwatch_loop())
+        except Exception:  # noqa: BLE001
+            pass
+
     # Conversation orphan sweep: turns interrupted by the previous shutdown
     # get their terminal turn.interrupted event (idempotent; contract in
     # docs/conversation-memory.md).
@@ -7865,6 +7876,19 @@ async def api_chat_eject(request: Request):
                 freed.append(f"ollama:{model}")
                 activity_log.emit("chat", f"Stopped ollama model {model}.", "info")
                 ok = True
+                # Part 3 (resident keep-watch): if the operator just
+                # deliberately froze the resident model, don't have the
+                # background loop immediately re-warm it right back —
+                # suppress for a short window. Scoped to the tier0 model
+                # specifically; ejecting some other installed model must
+                # not suppress keep-watch on tier0.
+                t0_name = (os.getenv("MODEL_NAME") or "").strip()
+                if t0_name and model in (t0_name, f"{t0_name}:latest"):
+                    try:
+                        from arail.portal.model_warmth import suppress_tier0_keepwatch
+                        suppress_tier0_keepwatch()
+                    except Exception:  # noqa: BLE001
+                        pass
             else:
                 notes.append(f"ollama stop returned {r.returncode}: {r.stderr.strip()[:200]}")
                 ok = False
