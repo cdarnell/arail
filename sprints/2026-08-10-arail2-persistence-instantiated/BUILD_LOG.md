@@ -1770,3 +1770,51 @@ Finding-4-shaped, needs its own ruling) and the golden path's
 now-honest, permanently-required `kb_gate` finding on
 `blueprint-smoke.yml` specifically (a consequence of Finding 3 being
 correct, not a defect in it).
+
+## PR #181 CI final two fixes (operator ruling on both reported issues) — merge after this
+
+### Fix 1 — relaxed `qa_db_seamless_driver.sh` S8 for `last-target.json`, by name
+
+Excluded `lab/instances/last-target.json` from S8's before/after
+comparison via `find ... ! -name 'last-target.json'` — not the whole
+directory, not "ignore arbitrary changes." Comment names the file
+explicitly and explains why it's exempt (genuine, documented,
+whole-checkout picker bookkeeping, `scripts/lib/instances.sh`'s
+`inst_write_last_target()`, predates this sprint) so a future edit
+doesn't widen the exemption without noticing.
+
+Verified directly, not assumed: a run that only rewrites
+`last-target.json` now compares identical (correct); a run that ALSO
+touches a sibling instance's own file still differs and still fails
+(the property S8 actually exists to protect is unchanged).
+
+Commit: `3e800c0` — `fix(tests): relax qa_db_seamless_driver.sh S8 for last-target.json only`
+
+### Fix 2 — `blueprint-smoke.yml`'s "Run doctor" step no longer gates on exit 0
+
+Per the operator's ruling: the golden-path lab ships 8 seed PKB pages
+tracked in git, so it is permanently in the QA-6 condition (content
+exists, nothing approved) — `doctor` correctly exits 3 for `kb_gate`.
+Approving in CI was ruled out (fabricating consent); deleting the seed
+content was ruled out (destroys a fixture other assertions may depend
+on). The step now accepts doctor's documented exit-code contract's two
+"ran and reported honestly" codes — 0 (healthy) and 3 (degraded) — and
+still fails on everything else: 1 (broken — no `.venv`, an import
+failure, a required binary missing), 2 (bad flag), any other exit code,
+and an explicit non-empty-`doctor.log` check before even inspecting the
+exit code, so a process that dies before writing anything can't slip
+through silently. No bare `|| true`.
+
+Verified all four cases directly against a simulated `arailctl`
+stand-in before touching the real workflow (not assumed): rc=0 and
+rc=3 both pass the block; rc=1 and rc=2 both fail it with their own
+exit code; a crash producing an empty `doctor.log` fails with exit 1
+and a named `::error::`, never silently.
+
+Commit: `679bb16` — `ci(blueprint-smoke): stop gating "Run doctor" on exit 0, per operator ruling`
+
+### CI re-run and final status
+
+Pushed both fixes; PR #181 re-ran all four checks. Results verified
+directly against workflow run logs, not assumed — see the report to the
+coordinator for the exact run URLs and conclusions at push time.
