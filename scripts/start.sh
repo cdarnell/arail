@@ -739,6 +739,22 @@ _instance_validate_port_override() {
     return 0
 }
 
+# _instance_db_ensure <data_dir> — readiness-gate the relational store for
+# exactly one data_dir, quietly if already ok, one line if it acted, one
+# warning (never fatal) if it can't act. Shared by the World-instance path
+# (_instance_start) and the root-lab boot path further down.
+# sprints/2026-08-10-arail2-persistence-instantiated §4.5/§4.1.
+_instance_db_ensure() {
+    local data_dir="$1"
+    [[ -n "$data_dir" ]] || return 0
+    [[ -f "$REPO_ROOT/.venv/bin/activate" ]] || return 0
+    local line rc=0
+    line="$(cd "$REPO_ROOT" && source .venv/bin/activate && \
+        python -m arail.dbspec.ensure "$data_dir" --apply --quiet-ok 2>&1)" || rc=$?
+    [[ -n "$line" ]] && echo "  $line"
+    return 0
+}
+
 # The 8-stage instance launch. ARCHITECTURE.md §3.5.
 _instance_start() {
     local slug="$1"
@@ -970,6 +986,16 @@ _instance_start() {
     # shellcheck disable=SC1091
     source "$pack_file"
     set +a
+
+    # ── Dependent service: relational store readiness ───────────────
+    # sprints/2026-08-10-arail2-persistence-instantiated §4.5. THIS
+    # instance's data_dir only — never a sibling's. SAFE-FORWARD applies
+    # and is reported; anything lossy/ahead/diverged warns, names the
+    # exact verb, and start continues (nothing reads arail.db at runtime
+    # yet — refusing to boot a working World over an inert store would
+    # trade a real outage for a theoretical one; see BACKLOG.md for the
+    # promotion-to-hard-gate follow-up once a runtime reader lands).
+    _instance_db_ensure "${ARAIL_DATA_DIR:-$(inst_data_dir "$slug")}"
 
     # ── [5/8] Bind ports ─────────────────────────────────────────────
     printf '[5/8] Bind ports… '
@@ -1261,6 +1287,10 @@ if declare -F _port_in_use >/dev/null 2>&1 && _port_in_use "${PORTAL_PORT:-8080}
     echo "  (or a foreign process is on :${PORTAL_PORT:-8080} — lsof -iTCP:${PORTAL_PORT:-8080} -sTCP:LISTEN)" >&2
     exit 1
 fi
+
+# Dependent service: relational store readiness, root lab's own data_dir
+# only. sprints/2026-08-10-arail2-persistence-instantiated §4.5.
+_instance_db_ensure "${ARAIL_DATA_DIR:-$REPO_ROOT/lab/data}"
 
 echo ""
 echo -e "${CYAN}${BOLD}${LAB_LOGO} Starting lab services…${RESET}"

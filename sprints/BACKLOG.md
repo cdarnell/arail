@@ -983,3 +983,328 @@ narrowest fully-correct fix would key resumption on a hash of each row's
 between the interrupted run and the resume is also caught — currently
 neither the count check nor a hypothetical path-set check would catch
 that case either.
+
+---
+
+## `arail.dbspec.ensure`'s Atlas-free replay has no CI job proving it stays in sync with `atlas schema diff`
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/ARCHITECTURE.md`
+§8 "Tech debt" — required follow-up ticket #1 before merge.
+
+**The gap.** `arail.dbspec.ensure` is a second, hand-written schema-
+application path alongside the existing Atlas-driven `./arailctl db
+apply`. ARCHITECTURE.md test 4 ("after `ensure_db(apply=True)`, `atlas
+schema diff` reports no statements") is the proof that the two paths
+never diverge — but it is dev-only and skipped whenever the `atlas`
+binary is absent, which is every CI runner and every user machine
+(Assumption 1: atlas is a developer tool, not a user dependency). So the
+one test that would catch `ensure.py`'s replay logic drifting from a
+future `schema.hcl` change never actually runs in CI today.
+
+**What a future sprint should do:** add an `atlas`-bearing CI job
+(install the binary the way a maintainer would, `brew install
+ariga/tap/atlas` or the Linux equivalent) that runs `pytest -k
+test_schema_fidelity_atlas_diff` (or whatever the test ends up named)
+specifically, separate from the main test matrix so a missing `atlas`
+binary elsewhere doesn't silently skip real coverage.
+
+---
+
+## `start`'s DB readiness check warns-and-continues; promote to a hard gate once `arail.db` has a runtime reader
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/ARCHITECTURE.md`
+§4.5 and §8 "Tech debt" — required follow-up ticket #2 before merge.
+
+**The gap.** `./arailctl start` calls `ensure_db(this_instance_data_dir,
+apply=True)` and, on `blocked`/`ahead`/`diverged`/`unavailable`, warns,
+names the exact fixing verb, and **continues booting** rather than
+refusing. This is deliberate for now: as of this sprint, nothing outside
+`src/arail/dbspec/` reads `arail.db` at runtime (verified by grep —
+`repo.py`, 500 lines, has zero runtime consumers), so gating boot on an
+inert store would trade a real outage for a theoretical one.
+
+**What a future sprint should do:** the moment any runtime code path
+starts reading `arail.db` (the first `repo.py` consumer, or any future
+feature built on the relational store), revisit `start`'s behavior on a
+non-`ok` DB state: it must become a hard readiness gate — `start` exits
+non-zero rather than booting a lab whose dependent service is broken.
+Until then, this warn-and-continue is the correct, disclosed call, not
+an oversight.
+
+---
+
+## `status --json=instances`'s byte-compatibility guard is self-referential, not a committed golden
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/REVIEW.md`
+round 1, ASK-3 — non-blocking, filed per the review's own instruction.
+
+**The gap.** ARCHITECTURE.md's F7/test 27 called for `--json=instances`
+compared against a **committed golden file**, byte-for-byte. What shipped
+instead (`tests/cli/status_driver.sh`'s T12/T27 scenario) is an
+internal-consistency check: (a) no `db`/`origin` key ever appears in a
+`--json=instances` row, and (b) stripping those same keys back out of
+`--json`'s (full-mode) `.instances` reproduces `--json=instances`
+exactly. That's a real, useful property — it does catch this sprint's
+actual risk (the db/origin augmentation leaking into the byte-compatible
+mode) — but it's self-referential: a change that broke both modes
+**identically** (e.g. renamed `slug` to `id` in both renderers at once)
+would pass this check while still breaking every external script that
+parses `--json=instances`.
+
+**What a future sprint should do:** add a small committed golden file
+(a fixed instances-array fixture, or a snapshot of a known scenario's
+`--json=instances` output) and assert byte-for-byte equality against it,
+the way F7 originally specified — independent of whatever `--json=full`
+happens to produce in the same run.
+
+---
+
+## `tests/cli/status_driver.sh` (and the whole CLI-contract driver layer) cannot run in CI or any worktree without a real `.venv`
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/REVIEW2.md`
+round 2 — "the meta-pattern... this is the second consecutive round where
+the shell layer's only real test hid something, and both times I found
+it by hand-running the driver against an external venv." Required action
+4 (partial — the other half is the `make_fake_venv` hardening entry
+below).
+
+**The gap.** `tests/cli/status_driver.sh` (and its siblings —
+`install_driver.sh`, `root_start_driver.sh`, etc.) self-skip entirely
+whenever no `.venv` with `arail` importable is found — which is every CI
+runner today and every builder worktree in this sprint's two rounds so
+far. That means the entire CLI-contract layer — the shell control flow
+that actually wires `ensure_db` into `install`/`start`/`status`, the
+exit-code contract, the byte-compatibility guarantees — has never once
+run in an automated, repeatable way. Both round 1 and round 2 of this
+sprint's review only caught real regressions (two broken test
+assertions in round 1; a live exit-code regression, T10/BLOCK-5, in
+round 2) because the architect hand-ran the driver against an external
+venv on their own machine. That is not a repeatable safety net.
+
+**What a future sprint should do:** give CI (or at minimum, the
+project's provisioned-checkout workflow) a real path to actually
+`pip install -e .` and run these drivers — not `pytest -k` skip-detection,
+an actual `.venv` build step ahead of the CLI-driver suite, gated behind
+whatever's cheapest (a dedicated CI job, a pre-commit hook on a
+provisioned machine, or at minimum a documented "run this before every
+merge" step in `docs/cli.md`/`AGENTS.md`). Until this exists, treat every
+change to `install.sh`/`start.sh`/`status.sh`/`scripts/lib/instances.sh`
+as unverified by CI regardless of how many unit tests pass.
+
+---
+
+## `tests/cli/lib.sh`'s `make_fake_venv` symlinks straight into the real venv's site-packages — no isolation
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/REVIEW2.md`
+round 2, "The `make_fake_venv` footgun" section. Recommended follow-up,
+not required before merge — a prominent warning was added at the
+symlink site instead (`tests/cli/lib.sh:make_fake_venv`) as the
+required-before-merge mitigation.
+
+**The gap.** `make_fake_venv` does `ln -s "$REAL_VENV/lib" "$fake/.venv/lib"`
+— the ENTIRE `lib/` directory (site-packages and all) is one symlink
+into the real, operator-installed venv. Any test scenario that renames,
+edits, or writes through a path reached via that symlink mutates the
+real installation, not a fixture. A draft scenario during this sprint's
+round 2 did exactly this (renaming `ensure.py` to simulate an import
+failure) — caught and discarded before it ran, but the mistake is one
+`git blame`-invisible edit away from happening for real, and the fix
+(a comment) only helps someone who reads it.
+
+**What a future sprint should do (either, whichever is cheaper when
+someone can actually test it against a real venv):**
+1. **Per-package symlinks** — instead of symlinking the whole `lib/`
+   dir, create `$fake/.venv/lib/.../site-packages` as a REAL directory
+   and symlink each top-level package/module inside it individually.
+   A scenario that renames `arail/dbspec/ensure.py` inside the FAKE
+   tree only ever touches the fake symlink to that one file, never the
+   real `arail/` package directory itself, IF the scenario is careful
+   to `readlink` before renaming — still needs care, but shrinks the
+   blast radius from "the whole real venv" to "one file."
+2. **Read-only tree** — mount or `chmod`-protect the real venv's
+   `site-packages` (or a copy of it) so any write through the symlink
+   fails loudly (permission denied) instead of silently succeeding.
+   Simpler, but chmod'ing a symlink's target has surprising semantics
+   across platforms and needs verifying against a real venv before
+   shipping — not done in this round for exactly that reason (no
+   `.venv` available to test against safely).
+
+Not implemented this round because it touches shared test-harness
+infrastructure used by every CLI driver, and verifying it doesn't break
+anything requires a real `.venv` to run against — unavailable in this
+worktree, and the coordinator's constraints for this sprint explicitly
+forbid experimenting against the operator's real installation.
+
+---
+
+## `provisioning.evaluate_all` — a predicate can return an `Assertion` under another mechanism's key
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/TEST_REPORT.md`
+round 4, QA-11 (LOW, cosmetic) — explicit coordinator ruling "file, do not
+fix" in round 5.
+
+**The gap.** QA-7 (round 4) closed the front door: `register()` now
+refuses a duplicate key. The back door is still open — a predicate
+registered under its own key may *return* an `Assertion` object whose
+`.key` field names a *different*, already-registered mechanism (e.g. a
+plugin registered as `"my_plugin"` whose predicate returns
+`Assertion("relational_store", "required", True, True, "all good", "")`).
+`evaluate_all` does not check that a returned `Assertion.key` matches
+the key it was registered under, so this produces two rows for one
+mechanism in `arail.provisioning/v1` and `doctor`'s printed table — one
+of them potentially a fabricated "healthy" row masking the real one.
+
+**Why this stays LOW / non-blocking:** it cannot flip an exit code.
+`doctor._FINDINGS` is a list and the degrade decision is `any(not
+f.ok and ...)` over all of them — the genuine failing row (registered
+under its real key) still degrades the run even if a duplicate,
+healthy-looking row also exists under the same key. It is a
+reporting-integrity wart (confusing output), not a silencing mask.
+
+**What a future sprint should do:** in `evaluate_all`, after confirming
+`isinstance(result, Assertion)` (QA-10's fix), also check
+`result.key == key` (the key it was registered under) and, on mismatch,
+either substitute a "key mismatch" finding (mirroring QA-10's
+non-Assertion handling) or force `result.key` back to the registered
+key before appending. `tests/test_qa_provisioning_generalize.py::test_a_predicate_cannot_impersonate_another_mechanisms_key`
+is already written against the correct behavior and is left failing on
+purpose — it will pass once this lands.
+
+---
+
+## `status.sh`'s human render gates the `db:` line on liveness only — ASK-6's remaining half
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/TEST_REPORT.md`
+round 4, QA-13 (MEDIUM) — explicit coordinator ruling "file, do not fix"
+in round 5. Mitigated, not blocking.
+
+**The gap.** ASK-6's `--json`/`--json=full` half is fixed (round 4,
+`59947f4`): a tampered migration ledger (`diverged`) survives the
+missing-data-root suppression and correctly degrades a *live* lab to
+exit 3 with the reason present. What QA verified still doesn't match
+ARCHITECTURE.md §4.4's own contract text is the **human render**: on a
+tampered checkout with **nothing running** —
+
+```
+--json : root.db.state = "diverged", detail names the hash mismatch
+human  : nothing.  "root lab: not running — ./arailctl start"
+```
+
+`status.sh` gates the human `db:` line on `state == "live"` /
+`root_is_live`, but §4.4 says the line should print "only when the lab
+is up **or the state is not `ok`**" — i.e. a non-`ok` db state should be
+visible in the human view even for a lab that isn't currently running,
+which the code does not do. Verified in an independent topology (not
+just the ledger driver's own killed-PID scenario) so the finding isn't
+an artifact of driver plumbing.
+
+**Why this is mitigated, not a live safety hole:** `start` itself warns
+on `diverged` at boot (`start.sh`'s db-ensure step, `_instance_db_ensure`)
+— the moment the tampered SQL would actually be considered for replay,
+the operator sees a warning naming the exact verb. And the exit code
+`status` gives when nothing is running (`4`, "nothing running") is
+truthful on its own terms — it is not lying about liveness, it is simply
+not surfacing a fact about a stopped lab's database that ARCHITECTURE.md's
+own text says it should.
+
+**What a future sprint should do:** either (a) change `status.sh`'s
+human renderer to match §4.4's literal text — print the `db:` line
+whenever `state != "ok"`, regardless of liveness — and re-verify this
+doesn't reintroduce chatter on the many legitimate non-live, `pending`/
+`unavailable` (now correctly non-degrading) states this sprint's own
+BLOCK-5/ASK-6 work spent two rounds getting quiet; or (b) narrow
+ARCHITECTURE.md §4.4's contract text to match the code's actual,
+considered behavior (report non-`ok` db states in the human view only
+for a currently-live lab) and document why "nothing running" is treated
+as softer than "up but degraded" for this specific line. Either is
+defensible; shipping without choosing is not — same discipline BLOCK-5
+already established for the sibling suppression decision.
+
+---
+
+## `daemon_active()`'s Darwin-only guard makes `status` misreport a genuinely-supervised Gentoo/OpenRC lab as "foreground"
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/ARCHITECTURE.md`
+§10, finding 1 (PR #181 CI, 2026-08-10) — required filing alongside the
+platform gate on `tests/cli/status_driver.sh`'s `T3/daemon-a`/
+`T3/daemon-b` scenarios.
+
+**The gap.** `scripts/lib/instances.sh:464`'s `daemon_active()` opens
+with `[[ "$(uname -s)" == "Darwin" ]] || return 1` — a guard installed
+because `scripts/install-daemon.sh:35` genuinely refuses to install
+launchd supervision on non-Darwin ("launchd supervision is macOS-only").
+That guard is correct for launchd specifically. But
+`scripts/gentoo-bootstrap.sh:182` installs OpenRC services
+(`rc-update add arail-portal default`) — so a Gentoo lab CAN be, and
+often IS, supervised, just not via launchd. `daemon_active()`'s
+Darwin-only early-return means `status` reports
+`supervision.mode: "foreground"` for such a lab regardless of whether
+OpenRC is actually running it — a genuine, pre-existing observability
+defect, unrelated to and out of scope for this sprint (persistence, not
+supervision).
+
+**Why this doesn't invalidate the platform gate on the test:** the gate
+on `T3/daemon-a`/`T3/daemon-b` is scoped narrowly to "launchd supervision
+cannot exist on Linux, so a scenario that plants a `LaunchAgents` plist
+and stubs `launchctl` cannot represent a reachable state there" — that
+claim is true regardless of this OpenRC gap. The gate is NOT "Linux has
+no supervision," and no comment or code in this sprint's changes asserts
+that; this ticket exists specifically so nobody mistakes the narrow gate
+for the broader (false) claim.
+
+**What a future sprint should do:** extend `daemon_active()` (or add a
+sibling check) to detect OpenRC supervision on Linux
+(`rc-service arail-portal status`, or equivalent — mirroring
+`gentoo-bootstrap.sh`'s own install path) and report `supervision.mode`
+accurately for that case, the same way the Darwin path already does for
+launchd. Any new CLI driver scenario for this should follow this
+episode's own lesson: gate the scenario on the platform the mechanism
+actually requires, and say so loudly if the test is skipped elsewhere
+(see `status_driver.sh`'s `skip_scenario()` helper, added for exactly
+this pattern).
+
+---
+
+## The CLI driver suite's CI coverage is narrower than "all of `tests/cli/*.sh`"
+
+**Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/ARCHITECTURE.md`
+§10 — "the still-open CI-runnable driver path from REVIEW3," which this
+sprint's PR #181 CI episode is itself the argument for.
+
+**What's already done:** `.github/workflows/db-ensure-ci.yml` (this
+sprint) wires four sprint-specific drivers into CI —
+`status_driver.sh`, `qa_db_collector_driver.sh`,
+`qa_db_seamless_driver.sh` (hard gates) and `qa_db_ledger_driver.sh`
+(`continue-on-error`, QA-13's one filed gap) — plus the sprint's Python
+QA suite, against a real `.venv` created in-job via `pip install -e
+".[dev]"`. That closes the specific, merge-blocking instance of this gap
+(QA-8: a driver run from the wrong source tree can report green while
+testing entirely different code).
+
+**What's still open.** The rest of `tests/cli/*.sh` —
+`install_driver.sh`, `root_start_driver.sh`, `restart_driver.sh`,
+`picker_driver.sh`, `warmup_driver.sh`, `verbs_driver.sh`,
+`color_driver.sh`, `reset_full_models_driver.sh`, `qa_edge_driver.sh`,
+and any future addition to this directory — has never run in CI at all.
+Every one of them self-skips silently without a `.venv` (the same
+`_cli_test_find_venv` pattern `status_driver.sh` uses), so a contributor
+who never happens to hand-run them locally against a real venv gets zero
+signal, on every PR, forever.
+
+**This episode is the argument for closing it.** PR #181's CI run
+surfaced a genuine, previously-undetected platform assumption
+(`T3/daemon-a`/`T3/daemon-b` encoding a macOS-only fixture with no
+gate) the moment the driver ran somewhere other than a macOS
+developer's own machine — exactly the class of defect a CI-invisible
+test layer cannot catch, on any driver, indefinitely. The four drivers
+now in CI are the ones this sprint happened to touch; the other nine are
+exposed to the identical risk and nothing currently guards them.
+
+**What a future sprint should do:** extend `.github/workflows/
+db-ensure-ci.yml` (or add a sibling workflow, matching its established
+`pip install -e ".[dev]"` + real-`.venv` shape) to run the remaining
+`tests/cli/*.sh` drivers, and audit each one for the same class of
+platform assumption `T3/daemon-a` had — a scenario is legitimate to gate
+on a platform only when the PRODUCT is gated at the same boundary and
+says so (this sprint's own standing rule, ARCHITECTURE.md §10); anything
+gated merely to make CI green needs fixing, not skipping.
