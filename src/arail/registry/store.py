@@ -132,6 +132,25 @@ def load_or_seed(reg: ModelRegistry) -> None:
         save(reg)
 
 
+def reconcile_from_env(reg: ModelRegistry) -> bool:
+    """Force tier0/tier1 to match current env RIGHT NOW.
+
+    ``load_or_seed`` only reconciles once, on first ``_ensure_loaded()`` per
+    process. The boot model-selection settle endpoint calls
+    ``model_defaults.apply()`` to re-stamp ``MODEL_NAME``/``AEROLLM_MODEL``
+    live, and needs the registry (and the ``to_state()`` it returns in the
+    same response) to reflect that immediately — not one request later.
+    Returns True iff anything changed (and was persisted).
+    """
+    reg._ensure_loaded()
+    with reg._lock:
+        changed = _seed_from_env(reg)
+        if changed:
+            reg.config_version += 1
+            save(reg)
+    return changed
+
+
 # ── env seeding ────────────────────────────────────────────────────
 
 TIER0_ID = _TIER0_ID = "tier0-local"

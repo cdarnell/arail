@@ -76,11 +76,23 @@ warn() { echo -e "${YELLOW}[${LAB_SHORT_NAME}]${RESET} $*"; }
 # installed, which fails a second, more confusing way even once the
 # daemon answers.
 _check_default_ollama_model() {
-    local model="llama-ai-eng"
-    if ! ollama list 2>/dev/null | awk 'NR>1{print $1}' | cut -d: -f1 | grep -qx "$model"; then
+    # Read the ACTUAL configured slot-A model (model_defaults.yaml, else
+    # .env's MODEL_NAME, else the llama-ai-eng builtin) rather than
+    # hardcoding llama-ai-eng — a lab settled onto a different primary
+    # model used to get either a false "not installed" warning about a
+    # model it doesn't even use, or silence about the one it does.
+    # python3 here resolves through the venv activated above (line 233).
+    local model
+    model="$(python3 -m arail.model_defaults --get default_a 2>/dev/null)"
+    [[ -n "$model" ]] || model="llama-ai-eng"
+    if ! ollama list 2>/dev/null | awk 'NR>1{print $1}' | cut -d: -f1 | grep -qx "${model%%:*}"; then
         warn "Ollama     → model '${model}' isn't installed yet — chat's default model won't"
         warn "             work until you run:"
-        warn "             ollama pull llama3.2:1b && ollama create ${model} -f models/ai-eng/Modelfile.default"
+        if [[ "$model" == "llama-ai-eng" ]]; then
+            warn "             ollama pull llama3.2:1b && ollama create ${model} -f models/ai-eng/Modelfile.default"
+        else
+            warn "             ollama pull ${model}"
+        fi
     fi
 }
 
@@ -1199,6 +1211,8 @@ print(json.dumps({
     echo ""
     echo -e "  Dashboard:  ${BOLD}${url}${RESET}"
     echo -e "  Data root:  ${BOLD}${instance_root}${RESET}"
+    echo ""
+    python3 -m arail.model_defaults --banner 2>/dev/null || true
     echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 
     # ARCHITECTURE.md §11.1: after the record is written and the URL banner
@@ -1657,6 +1671,8 @@ fi
 if command -v code-server &>/dev/null && [[ "$_root_ide_ok" == "1" ]]; then
     echo -e "  IDE:        ${BOLD}http://${BIND}:${IDE_PORT:-8443}${RESET}  (password in ${BOLD}lab.conf${RESET})"
 fi
+echo ""
+python3 -m arail.model_defaults --banner 2>/dev/null || true
 echo ""
 echo -e "${CYAN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${RESET}"
 

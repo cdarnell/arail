@@ -202,6 +202,19 @@ The Chat tab is built for crappy machines and beefy ones alike. A
 - **Custom endpoint** — any OpenAI-compatible URL (LM Studio, Ollama,
   your own vLLM server).
 
+**Settling "My Machine."** The first time a lab boots, a banner under the
+statusbar (every page, not just Chat) asks two questions in plain
+language: which model should load into GPU/memory right now, and which
+model should AeroLLM reference for deep answers. Each candidate shows its
+download size, whether it's actually on this machine's disk/Ollama store
+yet, and whether it fits — with the exact `ollama pull` / `hf download`
+command (plus an HF link) when it isn't installed. Confirm once and the
+banner is gone for good, reappearing only if something breaks later — the
+configured model gets uninstalled, no longer fits, or `.env` drifts away
+from what you settled. `./arailctl start`'s terminal banner shows the
+same read-only summary. See `model_defaults.yaml.example` and
+`docs/cli.md`'s `start` section for the mechanics.
+
 The **⚙ Manage providers** button opens a modal where you save each key,
 **test** it (the lab pings the vendor's `/models` endpoint), **list** the
 available models, or **remove** the token. Tokens persist to

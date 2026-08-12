@@ -191,6 +191,25 @@ directly, even when a daemon is active — daemon-mode refusal is
 `start.sh`'s own job so it can name the World slug (or `--root`) in the
 message.
 
+**Model selection, settled once and read-only here.** The readiness
+banner always prints a `Models:` block — the two boot slots (A: the
+resident chat model; B: the model AeroLLM references for deep answers),
+each with size, on-filesystem presence, and RAM fit, plus the exact
+`ollama pull` / `hf download` command when a configured model is
+missing. `start` never picks a model itself and never prompts — the
+interactive two-slot picker lives in the portal (a banner under the
+statusbar on every page until you confirm once, then only reappearing if
+something breaks — missing, doesn't fit, or `.env` drifted away from
+what was settled). Both surfaces read the same source of truth:
+`model_defaults.yaml` (repo root, gitignored — see
+`model_defaults.yaml.example`), written by the portal's
+`POST /api/models/settle` and read back with
+`python -m arail.model_defaults --banner` (what `start` shells out to)
+or `--get default_a`/`--get default_b` (one resolved value, empty line
+if unset — used to fix the Ollama-presence check below instead of
+hardcoding `llama-ai-eng`). Deleting `model_defaults.yaml` re-arms the
+portal picker on the next page load.
+
 **The relational store (`arail.db`), a dependent service** (sprints/
 2026-08-10-arail2-persistence-instantiated §4.5). Before the portal
 binds, `start` ensures THIS instance's own `arail.db` — never a

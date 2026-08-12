@@ -47,7 +47,13 @@ log = logging.getLogger(__name__)
 LAB_ROOT = Path(__file__).parent.parent
 ARAIL_ROOT = LAB_ROOT.parent
 DATA_DIR = LAB_ROOT / "data"
-MODELS_DIR = ARAIL_ROOT / "models"  # Models live in arail/models/, not lab/models/
+# Respect ARAIL_MODELS_DIR (same env var arail.config.MODELS_DIR and every
+# router/backends.py reader honor), defaulting to lab/models — NOT
+# arail_root/models, which this constant claimed for years without ever
+# matching where models actually get downloaded to (see arail.config:86,
+# AeroLLMBackend.__init__ in router/backends.py). Benchmarking against the
+# wrong directory silently found nothing to benchmark on a real lab.
+MODELS_DIR = Path(os.getenv("ARAIL_MODELS_DIR") or (LAB_ROOT / "models"))
 PROFILES_PATH = DATA_DIR / "model_profiles.json"
 REGISTRY_PATH = DATA_DIR / "model_registry.json"  # unified model registry (source of truth)
 

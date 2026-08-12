@@ -14,6 +14,18 @@
 # — early, once, at process start — so they win over anything .env sets
 # for these two keys. Copy this file to model_defaults.yaml (gitignored,
 # like .env — it's per-machine) and edit it directly.
+#
+# You don't have to hand-edit this, though: the portal shows a two-slot
+# picker banner (under the statusbar, every page) until this file exists
+# with a real default_a — "Confirm" there writes it for you via
+# POST /api/models/settle, with size/on-disk/RAM-fit shown per candidate
+# and the exact download command when one's missing. `./arailctl start`'s
+# readiness banner reads the same file back (read-only, never prompts) via
+# `python -m arail.model_defaults --banner`.
+#
+# THIS FILE'S EXISTENCE (with a truthy default_a) IS THE "SETTLED" SIGNAL
+# the boot picker uses to stop asking. Delete it to re-arm the picker on
+# the next portal page load.
 
 # default_a — the primary, fast, always-resident chat model
 # (Chat Studio's Box A / "1st inference"). Must be an already-installed
