@@ -6904,6 +6904,7 @@ def _prepare_chat_context(
     backend_override: str | None,
     model_override: str | None,
     runtime_override: str | None = None,
+    side: str = "A",
 ) -> dict[str, Any]:
     from arail import lab_brain
 
@@ -7081,7 +7082,16 @@ def _prepare_chat_context(
     # with a *different* model than the one requested; this refuses.
     from arail.registry.ceiling import ModelCeilingViolation, resolve_answering_model
     _ceiling_model = str(getattr(active_backend, "model_name", "") or "")
-    _ceiling_role = "secondary" if wants_deep else "primary"
+    # Column B ("2nd inference") is never the sole answering model — whatever
+    # is loaded there (aerollm/airllm, or any other model a user drops in via
+    # "use as B") is checked against the hardware-cap secondary role, not the
+    # strict <8B primary ceiling. Without this, `branch: "B"` from the client
+    # (buildBody() in chat.html) was captured for conversation persistence but
+    # never reached here, so a >=8B model placed in the UI's own "2nd ·
+    # aeroLLM" slot got refused as if it were trying to answer as primary —
+    # the exact "cannot serve as the answering model... use it as the AeroLLM
+    # secondary instead" message the UI was already showing it as.
+    _ceiling_role = "secondary" if (wants_deep or str(side).strip().upper() == "B") else "primary"
     _ceiling_backend_name = str(getattr(active_backend, "backend_name", "") or type(active_backend).__name__)
     try:
         model_provenance = resolve_answering_model(
@@ -7203,6 +7213,7 @@ async def _run_chat_completion_stream(
     max_tokens: int,
     runtime_override: str | None = None,
     think: bool | None = None,
+    side: str = "A",
 ) -> AsyncIterator[dict[str, Any]]:
     context = _prepare_chat_context(
         message=message,
@@ -7210,6 +7221,7 @@ async def _run_chat_completion_stream(
         backend_override=backend_override,
         model_override=model_override,
         runtime_override=runtime_override,
+        side=side,
     )
     error_result = context.get("error_result")
     if error_result is not None:
@@ -7388,6 +7400,7 @@ async def _run_chat_completion(
     top_p: float | None,
     max_tokens: int,
     runtime_override: str | None = None,
+    side: str = "A",
 ) -> dict:
     """Core of the /api/chat non-streaming path.
 
@@ -7402,6 +7415,7 @@ async def _run_chat_completion(
         backend_override=backend_override,
         model_override=model_override,
         runtime_override=runtime_override,
+        side=side,
     )
     error_result = context.get("error_result")
     if error_result is not None:
@@ -7645,6 +7659,7 @@ async def api_chat(request: Request):
         body.get("model"),
         body.get("runtime"),
     )
+    branch = str(body.get("branch") or "A").strip() or "A"
 
     return await _run_chat_completion(
         message=message,
@@ -7655,6 +7670,7 @@ async def api_chat(request: Request):
         top_p=top_p,
         max_tokens=int(body.get("max_tokens") or 512),
         runtime_override=runtime_override,
+        side=branch,
     )
 
 
@@ -7840,6 +7856,7 @@ async def api_chat_stream(request: Request):
             max_tokens=int(body.get("max_tokens") or 512),
             runtime_override=stream_runtime,
             think=think,
+            side=branch,
         ):
             if event.get("type") == "delta":
                 pieces.append(str(event.get("delta") or ""))

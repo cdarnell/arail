@@ -1621,10 +1621,10 @@
         <!-- ── Column B (secondary, hidden until Compare) ── -->
         <section class="col" data-col="B" hidden>
           <div class="col-quickbar">
-            <div class="col-chip" id="col-chip-B" title="2nd inference — aeroLLM. Keeps a frontier (70B+) model resident so it coexists with your on-GPU model. Slower per-token, far bigger brain.">
-              <span class="qb-label">2nd · aeroLLM</span>
+            <div class="col-chip" id="col-chip-B" title="2nd inference. Keeps a frontier (70B+) model resident so it coexists with your on-GPU model. Slower per-token, far bigger brain.">
+              <span class="qb-label" id="qb-label-B">2nd</span>
               <span class="chip-name" id="picker-label-B">—</span>
-              <span class="chip-hint">resident · slower · big params</span>
+              <span class="chip-hint" id="chip-hint-B">slower · big params</span>
             </div>
             <div class="qb-slider" data-quickkey="temperature">
               <span class="qb-label">temp</span>
@@ -2723,10 +2723,19 @@
       // doesn't exist (the exact bug that made Compare look like it
       // defaulted to a broken model after the auto-pick fix already
       // correctly refused to select it).
+      // "aeroLLM" only describes what's here when B is actually running the
+      // aerollm/airllm runtime — "use as B" lets any local model into this
+      // slot, and the strip used to claim "resident via aeroLLM" for those
+      // too, which is what made an Ollama pick in column B look/read exactly
+      // like an aeroLLM one.
+      const bRuntime = (State.bModel && State.bModel.runtime) || '';
+      const bIsDeepRt = bRuntime === 'aerollm' || bRuntime === 'airllm';
+      const bHead = bIsDeepRt ? '2nd inference · aeroLLM' : '2nd inference';
+      const bRuns = bIsDeepRt ? 'resident via aeroLLM' : ('runs via ' + (bRuntime || 'local'));
       html += State.bId
-        ? cell('b', '2nd inference · aeroLLM', State.bId,
-               bSpec.params || deep.param_hint || '70B+', 'resident via aeroLLM')
-        : '<div class="cs-col b"><div class="cs-h">2nd inference · aeroLLM</div>'
+        ? cell('b', bHead, State.bId,
+               bSpec.params || deep.param_hint || '70B+', bRuns)
+        : '<div class="cs-col b"><div class="cs-h">2nd inference</div>'
           + '<div class="cs-row"><span>not selected yet</span></div></div>';
       if (isFrontier(a.id)) {
         html += '<div class="cs-why">“' + escapeHtml(aModel) + '” is a frontier 70B+ model — '
@@ -2825,6 +2834,15 @@
       State.bEndpoint = m.endpoint || null; State.bModel = m;
       const { provider, model } = transformProvider(m.id, m.runtime);
       $('picker-label-B').textContent = `${provider} · ${model}`;
+      // The quickbar chip used to hardcode "2nd · aeroLLM" no matter what was
+      // actually loaded — any model dropped into column B via "use as B"
+      // (not just an aerollm/airllm pick) inherited a false "aeroLLM" label
+      // and a "resident" claim that only holds for the real deep backends.
+      const isDeepRt = m.runtime === 'aerollm' || m.runtime === 'airllm';
+      const qbLabel = $('qb-label-B');
+      if (qbLabel) qbLabel.textContent = isDeepRt ? `2nd · ${provider}` : '2nd';
+      const chipHint = $('chip-hint-B');
+      if (chipHint) chipHint.textContent = isDeepRt ? 'resident · slower · big params' : 'slower · big params';
       if ($('model-picker-B').classList.contains('open')) renderPickerB();
       if (typeof renderComparisonStrip === 'function') renderComparisonStrip();
     }

@@ -175,6 +175,56 @@ def test_chat_with_sub_8b_model_goes_through_primary_router(patched_app, monkeyp
     assert r.json().get("deep") is False
 
 
+def test_chat_branch_b_is_checked_as_secondary_not_primary(patched_app, monkeypatch):
+    """Column B ("2nd inference") sends `branch: "B"` in the request body.
+    Before this fix, `_prepare_chat_context` never saw that signal, so any
+    model dropped into column B (not just an aerollm/airllm pick — the "use
+    as B" affordance works on any local model) was checked against the
+    strict <8B *primary* ceiling and refused, even though the UI's own
+    column-B chip labels that slot as the 2nd inference. A 70B model in
+    column B must be checked against the (larger) hardware-driven secondary
+    cap instead, exactly like an explicit aerollm/airllm pick would be."""
+    app_mod, fake_deep, fake_router = patched_app
+    monkeypatch.setenv("MODEL_NAME", "Qwen2.5-3B-Instruct")
+
+    from arail import hardware as hardware_mod
+    monkeypatch.setattr(hardware_mod, "secondary_model_cap_b", lambda *a, **k: 100.0)
+
+    r = TestClient(app_mod.app).post("/api/chat", json={
+        "message": "hello",
+        "backend": "mlx",  # not an explicit deep-backend pick
+        "model": "Llama-3.1-70B",
+        "branch": "B",
+    })
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "error" not in body or not body["error"], (
+        f"column B should be checked as secondary (hardware cap), not "
+        f"primary — got refusal: {body}"
+    )
+    assert len(fake_router.calls) == 1, "primary router should have answered on column B"
+
+
+def test_chat_branch_a_default_still_refuses_70b(patched_app, monkeypatch):
+    """Sanity check the fix is scoped to branch B: an unspecified/`"A"`
+    branch keeps the strict primary ceiling even with a generous secondary
+    cap available."""
+    app_mod, fake_deep, fake_router = patched_app
+    monkeypatch.setenv("MODEL_NAME", "Qwen2.5-3B-Instruct")
+
+    from arail import hardware as hardware_mod
+    monkeypatch.setattr(hardware_mod, "secondary_model_cap_b", lambda *a, **k: 100.0)
+
+    r = TestClient(app_mod.app).post("/api/chat", json={
+        "message": "hello",
+        "backend": "mlx",
+        "model": "Llama-3.1-70B",
+    })
+    assert r.status_code == 200, r.text
+    assert len(fake_router.calls) == 0
+    assert "ceiling" in (r.json().get("error") or "").lower()
+
+
 def test_chat_dispatch_refusal_emits_activity_log(patched_app, monkeypatch):
     """The refusal path emits a warn activity_log line for audit trails."""
     app_mod, fake_deep, fake_router = patched_app
