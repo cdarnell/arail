@@ -313,13 +313,20 @@ MODEL_METADATA_OVERRIDES: List[tuple] = [
         "total_params_b": 1.0,
         "notes": "Persona wrap over Llama-3.2-1B-Instruct (models/ai-eng/Modelfile.default).",
     }),
+    # "ai-eng" and "ai-engineer" are two DIFFERENT models that happen to
+    # share a name prefix — not a rename of each other. ai-engineer was
+    # ARAIL's original (pre-two-tier) default, based on qwen3:8b then
+    # qwen2.5:7b; it was repositioned as the maximus deep persona when the
+    # 1B llama-ai-eng/ai-eng lineage launched. Do not merge these entries or
+    # treat one as a fallback alias for the other — see the corrected
+    # history of _resilient_chat_default() in src/arail/portal/app.py.
     (_re.compile(r"^ai-eng(?::|$)", _re.IGNORECASE), {
         "total_params_b": 1.0,
         "notes": "v1.0.0 name for llama-ai-eng.",
     }),
     (_re.compile(r"^ai-engineer(?::|$)", _re.IGNORECASE), {
         "total_params_b": 7.0,
-        "notes": "Maximus deep persona wrap over Qwen2.5-7B-Instruct (models/ai-eng/Modelfile.deep).",
+        "notes": "Maximus deep persona wrap over Qwen2.5-7B-Instruct (models/ai-eng/Modelfile.deep). NOT a rename of ai-eng/llama-ai-eng.",
     }),
     (_re.compile(r"Llama-4.*Maverick.*17B.*128E", _re.IGNORECASE), {
         "total_params_b": 400.0,

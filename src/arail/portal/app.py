@@ -7952,17 +7952,32 @@ def _resilient_chat_default(candidate: str | None) -> str | None:
     Handles name drift across versions without forcing operators to edit `.env`:
       - v1.1+ default: `llama-ai-eng` (Llama-3.2-1B + AI-engineer persona, Built with Llama)
       - v1.0.0 name: `ai-eng:latest`
-      - pre-v1.0.0 name: `ai-engineer:latest`
+    Both names above are the SAME ~1B persona, renamed once across releases.
 
-    Candidate list checked in preference order (back-compat):
-      ["llama-ai-eng", "ai-eng:latest", "ai-engineer:latest"]
-    Then any installed model matching the ai-eng-family regex.
+    `ai-engineer` / `ai-engineer:latest` is a DIFFERENT, larger model — the
+    maximus deep persona (Qwen2.5-7B-Instruct, ~7B params; see
+    models/ai-eng/Modelfile.deep and model_specs.MODEL_METADATA_OVERRIDES). It
+    was ARAIL's original, pre-two-tier default (based on qwen3:8b, then
+    qwen2.5:7b — never a ~1B model under any name) before the MODEL-TIERS-V2
+    split repositioned it as the deep persona. It is deliberately NOT treated
+    as a rename of llama-ai-eng/ai-eng below: scripts/setup.sh handles a
+    legacy ai-engineer:latest install the same way (adopts it as the deep
+    model, installs the 1B default separately, and explicitly does not alias
+    it to llama-ai-eng — "ai-engineer:latest is the 7B deep model").
 
-    Preference order when falling back:
-      1. any installed model matching the ai-eng-family regex (covers all three names)
-      2. `qwen2.5:7b` (documented preview base)
-      3. the first installed model (any runtime)
-      4. the original `candidate` (so we don't lose info if nothing installed yet)
+    Candidate list checked in preference order (back-compat, confident
+    same-model aliases only): ["llama-ai-eng", "ai-eng:latest"]
+    Then any installed model matching the llama-ai-eng/ai-eng family regex
+    (still excludes ai-engineer).
+
+    If no confident alias is installed, falls back to the first installed
+    model that the answering-model ceiling accepts as primary. That scan can
+    still land on ai-engineer:latest if it's the only thing installed — but
+    unlike the aliases above, that's a genuine guess across differently
+    sized models, not a known rename of `candidate`, so it's logged as a
+    warning rather than returned silently. If nothing installed passes the
+    ceiling either, returns the original `candidate` unchanged so the
+    ceiling can refuse it loudly downstream.
     """
     if not candidate:
         return candidate
@@ -7976,12 +7991,14 @@ def _resilient_chat_default(candidate: str | None) -> str | None:
         return candidate
     if not ids:
         return candidate
-    # Check the back-compat candidate list in preference order.
-    for preferred in ("llama-ai-eng", "ai-eng:latest", "ai-engineer:latest"):
+    # Check the back-compat candidate list in preference order. These are
+    # confident renames of the SAME model — ai-engineer is excluded on
+    # purpose, see docstring.
+    for preferred in ("llama-ai-eng", "ai-eng:latest"):
         if preferred in ids:
             return preferred
     import re as _re
-    _ai_eng_rx = _re.compile(r"^(?:llama-ai-eng|ai-eng(?:ineer)?)(?::|$)", _re.IGNORECASE)
+    _ai_eng_rx = _re.compile(r"^(?:llama-ai-eng|ai-eng)(?::|$)", _re.IGNORECASE)
     for mid in ids:
         if _ai_eng_rx.match(mid):
             return mid
@@ -7990,16 +8007,25 @@ def _resilient_chat_default(candidate: str | None) -> str | None:
     # installed) or `ids[0]` (whatever the first installed model happens to
     # be — Phase 1 review finding: this is one of the paths a >=8B model
     # can silently become the answering model), pick the first installed
-    # id that the answering-model ceiling actually accepts as primary.
-    # Refuse (return the original candidate, which the ceiling will also
-    # refuse loudly downstream) rather than guess.
+    # id that the answering-model ceiling actually accepts as primary. This
+    # can still resolve to ai-engineer:latest (7B) — that's fine as a last
+    # resort, but it must be visible rather than silent (see docstring).
     from arail.registry.ceiling import resolve_answering_model, ModelCeilingViolation
     for mid in ids:
         try:
             resolve_answering_model(mid, role="primary", backend="ollama_native")
-            return mid
         except ModelCeilingViolation:
             continue
+        _log.warning(
+            "_resilient_chat_default: %r not installed and no renamed alias "
+            "found; falling back to %r. It passes the primary-model ceiling "
+            "but is not a known rename of the requested model, so this may "
+            "be a different-sized model than intended.",
+            candidate, mid,
+        )
+        return mid
+    # Refuse (return the original candidate, which the ceiling will also
+    # refuse loudly downstream) rather than guess.
     return candidate
 
 
