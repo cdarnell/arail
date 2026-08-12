@@ -1289,11 +1289,10 @@
     .model-card .mc-meta .runtime { color: var(--accent2); }
     .model-card .mc-meta .dot { color: var(--border-strong); }
     .model-card .mc-actions {
-      display: none;
+      display: flex;
       gap: var(--s-1);
       margin-top: var(--s-2);
     }
-    .model-card:hover .mc-actions, .model-card.current .mc-actions { display: flex; }
     .model-card .mc-act {
       flex: 1;
       background: transparent;
@@ -3584,7 +3583,13 @@
               }
             } catch (err) { flashStatus('eject failed: ' + err.message); }
           });
-          card.addEventListener('click', () => { selectModel(m); renderModelRail(); });
+          // No whole-card click-selects-A fallback: with the action row
+          // always visible (mc-actions no longer hover-gated), a card
+          // click that lands on the card body instead of a specific
+          // button used to silently reassign column A — the exact
+          // footgun behind "I picked a model for B and it broke A."
+          // "use as A" is one explicit click away; it doesn't need a
+          // second, ambiguous trigger.
           wrap.appendChild(card);
         });
       };
