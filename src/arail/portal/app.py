@@ -2732,6 +2732,28 @@ def _slugify(text: str) -> str:
     return s or "heading"
 
 
+def _strip_frontmatter(text: str) -> str:
+    """Strip a leading YAML frontmatter block (``---`` … ``---``) before
+    markdown rendering.
+
+    Without this, MarkdownIt has no notion of frontmatter and renders the
+    block as literal prose/bullets at the top of the page — every doc's
+    ``title:``/``tags:`` block leaking into the reader's view. docs_registry
+    parses frontmatter separately (via python-frontmatter) for sidebar
+    metadata; this only strips it for the rendered body, no dependency on
+    that registry entry existing.
+    """
+    if not text.startswith("---"):
+        return text
+    lines = text.split("\n")
+    if lines[0].strip() != "---":
+        return text
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[i + 1:]).lstrip("\n")
+    return text
+
+
 def _render_with_toc(markdown_text: str) -> tuple[str, list[dict]]:
     """Render markdown to HTML and extract H2/H3 TOC entries.
 
@@ -2798,14 +2820,15 @@ def _render_markdown_page(request: Request, target: Path, *, doc_path: str,
     """Render a markdown file.  Legacy callers (design, blueprints, etc.) use this
     directly and get the simple single-column viewer without registry context.
     The /docs/{path} route uses a widened version that adds TOC + registry context."""
+    raw_text = _strip_frontmatter(target.read_text(errors="replace"))
     try:
         from markdown_it import MarkdownIt  # type: ignore[import-untyped]
     except ImportError:
-        return HTMLResponse(target.read_text(errors="replace"), status_code=200)
+        return HTMLResponse(raw_text, status_code=200)
 
     md = MarkdownIt("commonmark", {"html": False, "linkify": True, "typographer": True})
     md.enable(["table", "strikethrough"])
-    body_html = md.render(target.read_text(errors="replace"))
+    body_html = md.render(raw_text)
     return templates.TemplateResponse(request, "doc_viewer.html", {
         **_identity_ctx(),
         "doc_path": doc_path,
@@ -2947,7 +2970,7 @@ async def serve_local_doc(path: str, request: Request):
                 "tier_blocked": True,
             })
 
-    body_html, toc = _render_with_toc(target.read_text(errors="replace"))
+    body_html, toc = _render_with_toc(_strip_frontmatter(target.read_text(errors="replace")))
 
     siblings_prev, siblings_next = _docs_registry.siblings(slug) if doc else (None, None)
     related_docs = _docs_registry.related(slug, limit=3) if doc else ()
