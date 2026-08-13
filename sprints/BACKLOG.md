@@ -986,6 +986,30 @@ that case either.
 
 ---
 
+## Chat tab compute-source pills: honest-disabled, not send-path wired
+
+**Filed by:** `sprints/2026-08-11-two-slot-chat-models/` (explicit
+operator scope decision, made before implementation via AskUserQuestion
+— "Honest-disable" over building full multi-provider chat send in the
+same sprint).
+
+**The gap.** The Resident/Deep pickers' "Provider · run on" pills
+(Claude, NVIDIA, OpenRouter, HF, Custom) are real UI with a real,
+truthful disabled state (`sources[].wired`) — clicking a non-`my_machine`
+pill shows "not wired to chat send yet" instead of silently failing at
+send time the way it used to. But the send path itself
+(`/api/chat/stream` and friends) still only really talks to `my_machine`
+in practice; wiring an actual cloud round-trip through the two-slot chips
+was explicitly out of scope for this sprint.
+
+**What a future sprint should do:** wire at least one non-local source
+(Claude is the obvious first target — token-paste UX and
+`_provider_token`/`_fetch_provider_models` plumbing already exist for the
+gallery view) through to a real `/api/chat/stream` call, then flip that
+one source's `wired` flag. No owner or target date assigned yet.
+
+---
+
 ## `arail.dbspec.ensure`'s Atlas-free replay has no CI job proving it stays in sync with `atlas schema diff`
 
 **Filed by:** `sprints/2026-08-10-arail2-persistence-instantiated/ARCHITECTURE.md`

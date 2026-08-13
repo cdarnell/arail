@@ -168,6 +168,12 @@ class ModelRegistry:
         self.entries: Dict[str, ModelEntry] = {}
         self.bindings: Dict[str, Optional[str]] = {p: None for p in TASK_PROFILES}
         self.tab_overrides: Dict[str, Dict[str, Optional[str]]] = {}
+        # "Env wins only when env moved" (sprints/2026-08-11-two-slot-chat-
+        # models Part 4): the env fingerprint _seed_from_env last saw for
+        # each seeded tier, so a stationary env value never overwrites a
+        # UI-driven pick on the next boot — only an operator's actual .env
+        # edit does. See arail.registry.store._seed_from_env.
+        self.seed_state: Dict[str, Optional[str]] = {}
         self.config_version: int = 0
         self.recent_events: Deque[FallbackEvent] = deque(maxlen=50)
         self._loaded = False

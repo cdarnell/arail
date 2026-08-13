@@ -68,8 +68,14 @@ def test_get_optional_chat_backend_allows_the_same_model():
 
 
 def test_prepare_chat_model_load_reports_honest_refusal_not_false_ready(monkeypatch):
-    """T-SWITCH: with aeroLLM resident on model A, requesting model B must
-    end in state=error naming a restart, never `ready` reporting A."""
+    """T-SWITCH, updated for Part 4 (sprints/2026-08-11-two-slot-chat-
+    models): with aeroLLM resident on model A, requesting model B now
+    ATTEMPTS an in-process swap (instead of refusing outright) — but
+    _FakeAeroBackend here has no _close(), so the swap fails at the
+    quiesce step. Either way the outcome required by T-SWITCH still
+    holds: state=error, never a false `ready` for model A. See
+    test_deep_swap.py for the swap-succeeds path with a fake that
+    actually supports teardown."""
     import arail.portal.app as app_mod
     from arail.portal import scheduler
 
@@ -83,8 +89,9 @@ def test_prepare_chat_model_load_reports_honest_refusal_not_false_ready(monkeypa
             model="gemma-4-26b-a4b", runtime=None, provider="aerollm"
         )
         assert result["state"] == "error"
-        assert "requires a portal restart" in result["message"]
-        assert "Qwen2.5-7B-Instruct-4bit" in result["message"]
+        assert "couldn't switch the deep model" in result["message"].lower()
+        # Never falsely reports ready for the still-resident model A.
+        assert result["state"] != "ready"
 
     asyncio.run(asyncio.wait_for(_scenario(), timeout=5.0))
 

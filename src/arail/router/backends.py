@@ -1609,9 +1609,32 @@ class AeroLLMBackend(BaseBackend):
         rt_kwargs: dict[str, Any] = {}
         if draft_path:
             rt_kwargs["draft_model"] = draft_path
-        ring_depth = os.getenv("AEROLLM_RING_DEPTH")
-        if ring_depth and ring_depth.isdigit() and int(ring_depth) > 0:
-            rt_kwargs["ring_depth"] = int(ring_depth)
+
+        # Ring depth (sprints/2026-08-11-two-slot-chat-models Part 4):
+        # AEROLLM_RING_DEPTH, if set at all, always wins — including "0" or
+        # an unparseable value, both of which mean "no eviction" per the
+        # existing contract (aerollm's own default: every block resident).
+        # Only when the env var is entirely absent does the runtime profile
+        # (interactive/balanced/throughput — see arail.runtime_profile)
+        # supply a value; profile changes only take effect on the NEXT
+        # Runtime construction, since ring_depth is construction-time-only.
+        ring_depth_env = os.getenv("AEROLLM_RING_DEPTH")
+        ring_depth_source: Optional[str] = None
+        if ring_depth_env is not None:
+            ring_depth_source = "env"
+            if ring_depth_env.isdigit() and int(ring_depth_env) > 0:
+                rt_kwargs["ring_depth"] = int(ring_depth_env)
+        else:
+            try:
+                from arail.runtime_profile import params as _rt_params
+                from arail.runtime_profile import resolve as _rt_resolve
+                _profile, _ = _rt_resolve()
+                _depth = _rt_params(_profile).get("aerollm_ring_depth")
+                ring_depth_source = f"profile:{_profile}"
+                if isinstance(_depth, int) and _depth > 0:
+                    rt_kwargs["ring_depth"] = _depth
+            except Exception:  # noqa: BLE001
+                ring_depth_source = None
 
         # KV cache budget — cap by *available* RAM, not just total, so a
         # busy box (Ollama + Chrome + portal already loaded) doesn't drive
@@ -1624,17 +1647,14 @@ class AeroLLMBackend(BaseBackend):
             rt_kwargs["kv_memory_budget"] = reasoning["budget_bytes"]
         self._emit_budget_activity(reasoning)
 
-        # TODO(runtime-profile): Once AeroLLM accepts construction-time
-        # ring_depth + batch from runtime profile, replace the env-only
-        # path above with:
-        #     from arail.runtime_profile import resolve, params
-        #     p = params(resolve()[0])
-        #     rt_kwargs.setdefault("ring_depth", p["aerollm_ring_depth"])
-        #     rt_kwargs.setdefault("batch", p["aerollm_batch"])
-        # Profile changes require a Runtime restart today (kwargs are
-        # construction-time); for per-call batch, thread a kwarg into
-        # complete() reading params(resolve()[0])["aerollm_batch"].
-        # Param table is the source of truth — tuning is config, not code.
+        # `aerollm_batch` is NOT a construction-time Runtime kwarg (unlike
+        # ring_depth) — it belongs on a per-call path into complete(),
+        # which doesn't accept a batch parameter today. Wiring that is a
+        # separate, larger change (every complete() call site); out of
+        # scope here. ring_depth is recorded for the chat UI's deep-slot
+        # display (sprints/2026-08-11-two-slot-chat-models Part 4/5).
+        self._ring_depth = rt_kwargs.get("ring_depth")
+        self._ring_depth_source = ring_depth_source
 
         self._model_path = model_path
         self._draft_path = draft_path
@@ -1894,18 +1914,62 @@ class OllamaNativeBackend(OpenAICompatBackend):
         self.backend_name = "ollama:native"
         self._num_ctx = _resolve_ctx_override(self.model_name, default=None)
 
-    @staticmethod
-    def _keep_alive() -> "str | None":
-        """Ollama keep_alive for every request ("2h" default, "" = omit).
+    def _keep_alive(self) -> "str | None":
+        """Ollama keep_alive for every request.
 
         Without it Ollama evicts the model ~5 min after the last call, so
-        the "resident" Tier 0 quietly went cold between interactions. 2h
-        (not -1) by default: pinning forever fights the aeroLLM preload's
-        0.60 memory-pressure ceiling and the 0.75 chat guard on small
-        boxes; operators can set ARAIL_OLLAMA_KEEP_ALIVE=-1 to pin.
+        the "resident" Tier 0 quietly went cold between interactions.
+
+        Resolution order:
+          1. ARAIL_OLLAMA_KEEP_ALIVE, if set at all (including "" — omit
+             keep_alive entirely, falling back to Ollama's own default).
+             An explicit operator override always wins.
+          2. "-1" (pin forever) when ARAIL_RESIDENT_PIN is truthy
+             (default on) AND this instance's model is the registry's
+             tier0/resident entry — the "in the GPU at all times" story
+             the two-slot redesign (sprints/2026-08-11-two-slot-chat-
+             models Part 3) promises for the resident slot specifically.
+          3. "2h" otherwise (any other model, or pin disabled).
+
+        Pinning forever used to be rejected as a *default* because it
+        fights the aeroLLM preload's 0.60 memory-pressure ceiling and the
+        0.75 chat guard on 16 GB boxes — but that objection assumed an
+        arbitrarily large resident model. The resident slot the picker
+        offers by default is capped at <=3B (never past the <8B primary
+        ceiling), so pinned residency is ~1-2 GB: pinned tier0 (~2 GB) +
+        a resident aeroLLM 7B (~4 GB) is still well under 0.60 * 16 GB.
+        Only the model that's actually the registry's tier0 pins — every
+        other Ollama model (picked ad hoc from the rail, or used as a
+        one-off) keeps the old 2h behavior. ARAIL_RESIDENT_PIN=0 restores
+        the pre-Part-3 default everywhere.
         """
-        value = os.getenv("ARAIL_OLLAMA_KEEP_ALIVE", "2h").strip()
-        return value or None
+        raw = os.getenv("ARAIL_OLLAMA_KEEP_ALIVE")
+        if raw is not None:
+            value = raw.strip()
+            return value or None
+        pin_enabled = os.getenv("ARAIL_RESIDENT_PIN", "1").strip().lower() \
+            not in ("0", "false", "no")
+        if pin_enabled and self._is_registry_tier0_model():
+            return "-1"
+        return "2h"
+
+    def _is_registry_tier0_model(self) -> bool:
+        """True iff this backend's model IS the registry's tier0/resident
+        entry. Best-effort: any registry hiccup (unloaded, corrupt file,
+        import failure) falls back to False — a broken registry must
+        never silently pin the wrong model forever, it should just leave
+        keep_alive at the old, safe 2h default."""
+        try:
+            from arail.registry import get_registry
+            from arail.registry.store import TIER0_ID
+            reg = get_registry()
+            reg._ensure_loaded()
+            entry = reg.entries.get(TIER0_ID)
+            if entry is None or entry.backend != "ollama_native":
+                return False
+            return self.model_name in (entry.model_id, f"{entry.model_id}:latest")
+        except Exception:  # noqa: BLE001
+            return False
 
     def _ollama_root(self) -> str:
         """Return the Ollama root URL (strip trailing /v1 from base_url)."""

@@ -12,9 +12,37 @@ monkeypatch the env var back to empty.
 from __future__ import annotations
 
 import os
+import sys
 import tempfile
 
 import pytest
+
+# ---------------------------------------------------------------------------
+# Package-source isolation — MUST run before any `import arail.*`.
+#
+# `arail` is installed editable (`pip install -e .`) against the checkout it
+# was installed FROM. A git worktree is a separate checkout of a different
+# branch/commit; its own `pip install -e .` was never (re-)run, so the
+# editable install's .pth file still points at the ORIGINAL checkout's
+# `src/`. Without this, every test file that doesn't carry its own explicit
+# `sys.path.insert(0, .../src)` boilerplate silently imports `arail` from
+# that other checkout — exercising code this worktree never touched, and
+# missing every change this worktree DID make. (Discovered running the two-
+# slot chat model redesign, sprints/2026-08-11-two-slot-chat-models: a
+# `tests/registry/` run passed cleanly while testing code with none of that
+# sprint's changes — `arail.portal.app` had no `_chat_slots_payload`
+# attribute at all, `hasattr` confirmed it — because nothing in that
+# directory ever pointed sys.path at this checkout.) Once ANY module of a
+# package is imported, Python caches it for the rest of the process — so
+# this must win the race and run before the FIRST `import arail` anywhere
+# in the session, which means here, at the top of the root conftest, ahead
+# of the .env isolation below (that isolation only protects `arail.config`'s
+# import-time load_dotenv() call, not module resolution itself).
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_SRC_DIR = os.path.join(_REPO_ROOT, "src")
+if _SRC_DIR in sys.path:
+    sys.path.remove(_SRC_DIR)
+sys.path.insert(0, _SRC_DIR)
 
 # ---------------------------------------------------------------------------
 # Session-level .env isolation — MUST run before any `import arail.*`.

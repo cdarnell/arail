@@ -155,3 +155,139 @@ def test_apply_chat_defaults_bad_json_returns_original(monkeypatch):
     assert b is None
     assert m is None
     assert r is None
+
+
+# ---------------------------------------------------------------------------
+# POST /api/chat/default — `slot` (sprints/2026-08-11-two-slot-chat-models)
+# ---------------------------------------------------------------------------
+
+def _isolate_registry(monkeypatch, tmp_path):
+    from arail.registry import core as reg_core
+    monkeypatch.setenv("ARAIL_MODEL_REGISTRY_FILE",
+                       str(tmp_path / "model_registry.json"))
+    monkeypatch.setenv("MODEL_BACKEND", "ollama_native")
+    monkeypatch.setenv("MODEL_NAME", "llama-ai-eng")
+    monkeypatch.setenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
+    reg_core.reset_registry()
+
+
+def test_chat_default_unknown_slot_refused(monkeypatch, isolated_secrets, tmp_path):
+    _isolate_registry(monkeypatch, tmp_path)
+    client = _make_client(monkeypatch, lab_mode="airgapped")
+    r = client.post("/api/chat/default", json={"slot": "sideways", "model": "x"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is False
+    assert "sideways" in body.get("error", "")
+
+
+def test_chat_default_deep_slot_requires_model(monkeypatch, isolated_secrets, tmp_path):
+    _isolate_registry(monkeypatch, tmp_path)
+    client = _make_client(monkeypatch, lab_mode="airgapped")
+    r = client.post("/api/chat/default", json={"slot": "deep"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is False
+    assert "model" in body.get("error", "").lower()
+
+
+def test_chat_default_deep_slot_refuses_oversized_model(monkeypatch, isolated_secrets, tmp_path):
+    """The deep slot goes through the SAME secondary-role chokepoint as
+    everything else — an unreadable/oversized model must refuse here too,
+    not just at load/send time."""
+    _isolate_registry(monkeypatch, tmp_path)
+    client = _make_client(monkeypatch, lab_mode="airgapped")
+    r = client.post("/api/chat/default", json={"slot": "deep", "model": "totally-unknown-model-xyz"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is False
+    assert "unknown parameter count" in body.get("error", "").lower() or "params" in body.get("error", "").lower()
+
+
+def test_chat_default_deep_slot_refuses_when_not_on_disk(monkeypatch, isolated_secrets, tmp_path):
+    _isolate_registry(monkeypatch, tmp_path)
+    from arail.portal import app as portal_app
+    with patch.object(portal_app, "_aerollm_model_ready", return_value=False):
+        client = _make_client(monkeypatch, lab_mode="airgapped")
+        r = client.post("/api/chat/default", json={"slot": "deep", "model": "Qwen2.5-3B-Instruct-4bit"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is False
+    assert "disk" in body.get("error", "").lower()
+
+
+def test_chat_default_deep_slot_success_updates_env_and_registry(monkeypatch, isolated_secrets, tmp_path):
+    _isolate_registry(monkeypatch, tmp_path)
+    from arail.portal import app as portal_app
+    with patch.object(portal_app, "_aerollm_model_ready", return_value=True):
+        client = _make_client(monkeypatch, lab_mode="airgapped")
+        r = client.post("/api/chat/default", json={"slot": "deep", "model": "Qwen2.5-3B-Instruct-4bit"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert body.get("slot") == "deep"
+    assert body.get("model") == "Qwen2.5-3B-Instruct-4bit"
+    assert body.get("registry_updated") is True
+    assert body.get("requires_restart") is False
+    assert os.environ.get("AEROLLM_MODEL") == "Qwen2.5-3B-Instruct-4bit"
+
+    from arail.registry import get_registry
+    reg = get_registry()
+    reg._ensure_loaded()
+    assert reg.entries["tier1-aerollm"].model_id == "Qwen2.5-3B-Instruct-4bit"
+    assert reg.entries["tier1-aerollm"].source == "user"
+
+
+def test_chat_default_resident_write_through_for_small_ollama_model(monkeypatch, isolated_secrets, tmp_path):
+    _isolate_registry(monkeypatch, tmp_path)
+    client = _make_client(monkeypatch, lab_mode="airgapped")
+    r = client.post(
+        "/api/chat/default",
+        json={"provider": "my_machine", "model": "llama-ai-eng:latest", "runtime": "ollama"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert body.get("registry_updated") is True
+
+    from arail.registry import get_registry
+    reg = get_registry()
+    reg._ensure_loaded()
+    assert reg.entries["tier0-local"].model_id == "llama-ai-eng:latest"
+    assert reg.entries["tier0-local"].source == "user"
+
+
+def test_chat_default_resident_write_through_skipped_for_oversized_model(monkeypatch, isolated_secrets, tmp_path):
+    """A >=8B pick still sets the chat default (ok:true, back-compat) but is
+    NOT promoted to the registry's tier0 identity — the ceiling refusal is
+    silent to the chat-default caller, loud (False) in registry_updated."""
+    _isolate_registry(monkeypatch, tmp_path)
+    client = _make_client(monkeypatch, lab_mode="airgapped")
+    r = client.post(
+        "/api/chat/default",
+        json={"provider": "my_machine", "model": "qwen2.5:14b", "runtime": "ollama"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert body.get("registry_updated") is False
+
+    from arail.registry import get_registry
+    reg = get_registry()
+    reg._ensure_loaded()
+    assert reg.entries["tier0-local"].model_id != "qwen2.5:14b"
+
+
+def test_chat_default_resident_write_through_skipped_for_non_ollama_runtime(monkeypatch, isolated_secrets, tmp_path):
+    """mlx/other local runtimes persist as the chat default only — pinning
+    and the registry's tier0 identity are an Ollama-model story."""
+    _isolate_registry(monkeypatch, tmp_path)
+    client = _make_client(monkeypatch, lab_mode="airgapped")
+    r = client.post(
+        "/api/chat/default",
+        json={"provider": "my_machine", "model": "Qwen2.5-3B-Instruct-4bit", "runtime": "mlx"},
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body.get("ok") is True
+    assert body.get("registry_updated") is False

@@ -6,6 +6,34 @@ project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed (Chat tab — two-slot model selection replaces five overlapping pickers)
+
+- **The Chat tab now shows exactly two model chips: Resident and Deep.**
+  Resident is the small, always-warm model pinned in the GPU
+  (`ARAIL_RESIDENT_PIN`, default on); Deep is the AeroLLM-served model,
+  fully resident once loaded. Previously the page had five separate,
+  partly-broken ways to touch model selection (a non-clickable chip, a
+  dead `⌘K` picker, a below-the-fold rail, an "active model" strip whose
+  "swap →" only scrolled, and a rival nav switcher that could disagree
+  with all of them) — this is the redesign the operator asked for
+  directly (see `sprints/2026-08-11-two-slot-chat-models/SPRINT.md`).
+- **Resident picker** defaults to ≤3B models, with a "show larger" reveal
+  up to the existing <8B primary-model ceiling; every row's eligibility
+  and Llama-license attribution are computed server-side, never
+  re-derived in the browser.
+- **Deep picker** offers real alternatives (every installed MLX-runtime
+  model, checked against the hardware's resident-deep-model capacity) —
+  picking one swaps in-process, no portal restart.
+- **Compare** (`+ Compare`) now always runs Resident vs. Deep side by
+  side, with genuinely separate per-column chat history (a real bug:
+  both columns previously shared one history array).
+- **AeroLLM can now actually be unloaded.** The Deep chip's eject frees
+  it via a real in-process teardown, replacing the earlier "aeroLLM can
+  never be freed this sprint" restriction.
+- Compute-source pills (Claude, NVIDIA, OpenRouter, HF, Custom) are
+  honestly disabled with a reason when clicked, instead of silently
+  failing at send time — wiring their actual send path is a follow-up.
+
 ### Added (settle model selection at boot, once and for all)
 
 - **A two-slot model-selection banner, settled once.** The portal shows a
