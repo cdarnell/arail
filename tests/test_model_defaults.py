@@ -10,12 +10,17 @@ nothing downstream needs to change to respect it.
 """
 from __future__ import annotations
 
+import json
 import os
+import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 from arail import model_defaults
+
+_REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 @pytest.fixture(autouse=True)
@@ -172,3 +177,209 @@ def test_example_file_is_valid_yaml_and_documents_both_keys():
     data = yaml.safe_load(example.read_text(encoding="utf-8"))
     assert "default_a" in data
     assert "default_b" in data
+
+
+# ---------------------------------------------------------------------------
+# write_defaults() — the boot-settle endpoint's persistence path
+# ---------------------------------------------------------------------------
+
+def test_write_defaults_roundtrips_through_apply(tmp_path):
+    f = tmp_path / "model_defaults.yaml"
+    written = model_defaults.write_defaults("qwen2.5:7b", "Qwen2.5-7B-Instruct-4bit", path=f)
+    assert written == f
+    result = model_defaults.apply(f)
+    assert result["default_a"] == "qwen2.5:7b"
+    assert result["default_b"] == "Qwen2.5-7B-Instruct-4bit"
+
+
+def test_write_defaults_explicit_none_b_roundtrips_as_null(tmp_path):
+    f = tmp_path / "model_defaults.yaml"
+    model_defaults.write_defaults("llama-ai-eng", None, path=f)
+    import yaml
+    data = yaml.safe_load(f.read_text(encoding="utf-8"))
+    assert data["default_a"] == "llama-ai-eng"
+    assert data["default_b"] is None
+    # And apply() must treat that null as "explicitly cleared", not "absent" —
+    # same honesty guarantee test_explicit_null_default_b_clears_a_stale_env_value
+    # pins for hand-authored files.
+    os.environ["AEROLLM_MODEL"] = "some-stale-value"
+    result = model_defaults.apply(f)
+    assert "AEROLLM_MODEL" not in os.environ
+    assert result["default_b"] is None
+
+
+def test_write_defaults_is_atomic_no_partial_file_on_crash(tmp_path, monkeypatch):
+    """A write that dies mid-flight must never leave a corrupt/partial
+    model_defaults.yaml behind — the temp file is written and renamed,
+    never the real path opened in place."""
+    f = tmp_path / "model_defaults.yaml"
+
+    real_replace = os.replace
+
+    def _boom(*a, **kw):
+        raise OSError("simulated crash")
+
+    monkeypatch.setattr(os, "replace", _boom)
+    with pytest.raises(OSError):
+        model_defaults.write_defaults("llama-ai-eng", None, path=f)
+    assert not f.exists()
+    # No stray .tmp files left behind either.
+    assert list(tmp_path.glob(".model_defaults.*.tmp")) == []
+    monkeypatch.setattr(os, "replace", real_replace)
+
+
+def test_write_defaults_respects_path_override_precedence(monkeypatch, tmp_path):
+    """Same precedence apply() uses: explicit path= wins over
+    ARAIL_MODEL_DEFAULTS_FILE wins over the CWD default."""
+    env_file = tmp_path / "env.yaml"
+    explicit_file = tmp_path / "explicit.yaml"
+    monkeypatch.setenv("ARAIL_MODEL_DEFAULTS_FILE", str(env_file))
+    written = model_defaults.write_defaults("a", "b", path=explicit_file)
+    assert written == explicit_file
+    assert explicit_file.exists()
+    assert not env_file.exists()
+
+
+def test_write_defaults_without_explicit_path_uses_env_override(monkeypatch, tmp_path):
+    env_file = tmp_path / "env.yaml"
+    monkeypatch.setenv("ARAIL_MODEL_DEFAULTS_FILE", str(env_file))
+    written = model_defaults.write_defaults("llama-ai-eng", None)
+    assert written == env_file
+    assert env_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# resolve_slots() — "settled" detection the boot banner's mode hinges on
+# ---------------------------------------------------------------------------
+
+def test_resolve_slots_reports_unsettled_when_file_absent(monkeypatch, tmp_path):
+    f = tmp_path / "model_defaults.yaml"
+    monkeypatch.setenv("ARAIL_MODEL_DEFAULTS_FILE", str(f))
+    result = model_defaults.resolve_slots()
+    assert result["settled"] is False
+    assert result["default_a"] == "llama-ai-eng"  # builtin fallback
+    assert result["default_b"] is None
+
+
+def test_resolve_slots_reports_settled_after_write(monkeypatch, tmp_path):
+    f = tmp_path / "model_defaults.yaml"
+    monkeypatch.setenv("ARAIL_MODEL_DEFAULTS_FILE", str(f))
+    model_defaults.write_defaults("qwen3:8b", None, path=f)
+    model_defaults.apply(f)
+    result = model_defaults.resolve_slots()
+    assert result["settled"] is True
+    assert result["default_a"] == "qwen3:8b"
+
+
+def test_resolve_slots_settled_requires_truthy_default_a(monkeypatch, tmp_path):
+    """An empty/blank default_a must not count as settled — the picker
+    should still show up rather than silently trusting a garbage file."""
+    f = tmp_path / "model_defaults.yaml"
+    f.write_text("default_a: \"\"\ndefault_b: null\n", encoding="utf-8")
+    monkeypatch.setenv("ARAIL_MODEL_DEFAULTS_FILE", str(f))
+    result = model_defaults.resolve_slots()
+    assert result["settled"] is False
+
+
+# ---------------------------------------------------------------------------
+# _gather_slot_facts() / report() — presence, size, fit, install command
+# ---------------------------------------------------------------------------
+
+def test_gather_slot_facts_slot_a_present_via_ollama(monkeypatch, tmp_path):
+    f = tmp_path / "model_defaults.yaml"
+    monkeypatch.setenv("ARAIL_MODEL_DEFAULTS_FILE", str(f))
+    monkeypatch.setenv("MODEL_NAME", "llama-ai-eng")
+    monkeypatch.setattr(
+        "arail.chat._ollama_installed_models",
+        lambda *a, **kw: [{"id": "llama-ai-eng", "runtime": "ollama",
+                            "size_gb": 0.9, "modified": "", "endpoint": "x"}])
+    facts = model_defaults._gather_slot_facts()
+    assert facts["a"]["present"] is True
+    assert facts["a"]["size_gb"] == 0.9
+    assert facts["a"]["install_command"] is None
+
+
+def test_gather_slot_facts_slot_a_absent_carries_install_command(monkeypatch, tmp_path):
+    f = tmp_path / "model_defaults.yaml"
+    monkeypatch.setenv("ARAIL_MODEL_DEFAULTS_FILE", str(f))
+    monkeypatch.setenv("MODEL_NAME", "not-installed:latest")
+    monkeypatch.setattr("arail.chat._ollama_installed_models", lambda *a, **kw: [])
+    facts = model_defaults._gather_slot_facts()
+    assert facts["a"]["present"] is False
+    assert facts["a"]["install_command"] == "ollama pull not-installed:latest"
+
+
+def test_gather_slot_facts_slot_b_none_when_unconfigured(monkeypatch, tmp_path):
+    f = tmp_path / "model_defaults.yaml"
+    monkeypatch.setenv("ARAIL_MODEL_DEFAULTS_FILE", str(f))
+    monkeypatch.delenv("AEROLLM_MODEL", raising=False)
+    facts = model_defaults._gather_slot_facts()
+    assert facts["b"] is None
+
+
+def test_gather_slot_facts_slot_b_present_reports_fit_and_size(tmp_path, monkeypatch):
+    model_dir = tmp_path / "models" / "Qwen2.5-7B-Instruct-4bit"
+    model_dir.mkdir(parents=True)
+    (model_dir / "weights.bin").write_bytes(b"0" * 1024)
+    monkeypatch.setenv("ARAIL_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit")
+    facts = model_defaults._gather_slot_facts()
+    assert facts["b"]["present"] is True
+    assert facts["b"]["fit"] in ("fits", "too_big")  # resolved via name-regex (7B)
+    assert facts["b"]["install_command"] is None
+
+
+def test_gather_slot_facts_slot_b_absent_carries_hf_download_hint(tmp_path, monkeypatch):
+    monkeypatch.setenv("ARAIL_MODELS_DIR", str(tmp_path / "models"))
+    monkeypatch.setenv("AEROLLM_MODEL", "never-downloaded")
+    facts = model_defaults._gather_slot_facts()
+    assert facts["b"]["present"] is False
+    assert "hf download mlx-community/never-downloaded" in facts["b"]["install_command"]
+
+
+def test_report_never_raises_and_mentions_both_slots(monkeypatch, tmp_path):
+    monkeypatch.setenv("ARAIL_MODEL_DEFAULTS_FILE", str(tmp_path / "model_defaults.yaml"))
+    monkeypatch.setattr("arail.chat._ollama_installed_models", lambda *a, **kw: [])
+    text = model_defaults.report()
+    assert "A (resident):" in text
+    assert "B (aeroLLM):" in text
+
+
+# ---------------------------------------------------------------------------
+# CLI (python -m arail.model_defaults) — the start.sh readiness-banner surface
+# ---------------------------------------------------------------------------
+
+def test_cli_get_default_a_unsettled_prints_builtin_fallback(tmp_path, monkeypatch):
+    env = dict(os.environ)
+    env["ARAIL_MODEL_DEFAULTS_FILE"] = str(tmp_path / "model_defaults.yaml")
+    env["ARAIL_ENV_FILE"] = str(tmp_path / "env")
+    result = subprocess.run(
+        [sys.executable, "-m", "arail.model_defaults", "--get", "default_a"],
+        capture_output=True, text=True, env=env, cwd=_REPO_ROOT)
+    assert result.returncode == 0
+    assert result.stdout.strip() == "llama-ai-eng"
+
+
+def test_cli_banner_prints_models_block(tmp_path):
+    env = dict(os.environ)
+    env["ARAIL_MODEL_DEFAULTS_FILE"] = str(tmp_path / "model_defaults.yaml")
+    env["ARAIL_ENV_FILE"] = str(tmp_path / "env")
+    result = subprocess.run(
+        [sys.executable, "-m", "arail.model_defaults", "--banner"],
+        capture_output=True, text=True, env=env, cwd=_REPO_ROOT)
+    assert result.returncode == 0
+    assert "Models:" in result.stdout
+    assert "A (resident):" in result.stdout
+
+
+def test_cli_json_is_valid_json_with_expected_keys(tmp_path):
+    env = dict(os.environ)
+    env["ARAIL_MODEL_DEFAULTS_FILE"] = str(tmp_path / "model_defaults.yaml")
+    env["ARAIL_ENV_FILE"] = str(tmp_path / "env")
+    result = subprocess.run(
+        [sys.executable, "-m", "arail.model_defaults", "--json"],
+        capture_output=True, text=True, env=env, cwd=_REPO_ROOT)
+    assert result.returncode == 0
+    payload = json.loads(result.stdout)
+    assert "settled" in payload and "facts" in payload
+    assert payload["settled"] is False

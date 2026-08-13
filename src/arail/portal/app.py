@@ -2749,6 +2749,28 @@ def _slugify(text: str) -> str:
     return s or "heading"
 
 
+def _strip_frontmatter(text: str) -> str:
+    """Strip a leading YAML frontmatter block (``---`` … ``---``) before
+    markdown rendering.
+
+    Without this, MarkdownIt has no notion of frontmatter and renders the
+    block as literal prose/bullets at the top of the page — every doc's
+    ``title:``/``tags:`` block leaking into the reader's view. docs_registry
+    parses frontmatter separately (via python-frontmatter) for sidebar
+    metadata; this only strips it for the rendered body, no dependency on
+    that registry entry existing.
+    """
+    if not text.startswith("---"):
+        return text
+    lines = text.split("\n")
+    if lines[0].strip() != "---":
+        return text
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            return "\n".join(lines[i + 1:]).lstrip("\n")
+    return text
+
+
 def _render_with_toc(markdown_text: str) -> tuple[str, list[dict]]:
     """Render markdown to HTML and extract H2/H3 TOC entries.
 
@@ -2815,14 +2837,15 @@ def _render_markdown_page(request: Request, target: Path, *, doc_path: str,
     """Render a markdown file.  Legacy callers (design, blueprints, etc.) use this
     directly and get the simple single-column viewer without registry context.
     The /docs/{path} route uses a widened version that adds TOC + registry context."""
+    raw_text = _strip_frontmatter(target.read_text(errors="replace"))
     try:
         from markdown_it import MarkdownIt  # type: ignore[import-untyped]
     except ImportError:
-        return HTMLResponse(target.read_text(errors="replace"), status_code=200)
+        return HTMLResponse(raw_text, status_code=200)
 
     md = MarkdownIt("commonmark", {"html": False, "linkify": True, "typographer": True})
     md.enable(["table", "strikethrough"])
-    body_html = md.render(target.read_text(errors="replace"))
+    body_html = md.render(raw_text)
     return templates.TemplateResponse(request, "doc_viewer.html", {
         **_identity_ctx(),
         "doc_path": doc_path,
@@ -2964,7 +2987,7 @@ async def serve_local_doc(path: str, request: Request):
                 "tier_blocked": True,
             })
 
-    body_html, toc = _render_with_toc(target.read_text(errors="replace"))
+    body_html, toc = _render_with_toc(_strip_frontmatter(target.read_text(errors="replace")))
 
     siblings_prev, siblings_next = _docs_registry.siblings(slug) if doc else (None, None)
     related_docs = _docs_registry.related(slug, limit=3) if doc else ()
@@ -6956,6 +6979,7 @@ def _prepare_chat_context(
     backend_override: str | None,
     model_override: str | None,
     runtime_override: str | None = None,
+    side: str = "A",
 ) -> dict[str, Any]:
     from arail import lab_brain
 
@@ -7008,6 +7032,20 @@ def _prepare_chat_context(
     # 30B constant. See arail.registry.ceiling.
     # ── End hardware-floor rule ─────────────────────────────────────────
 
+    # C6.3/F-SWITCH, wired up here 2026-08-11 (was only reachable from the
+    # explicit /model-load path — see _ChatBackendModelMismatch's
+    # docstring): AeroLLM/AirLLM are process-wide singletons cached by
+    # backend NAME in _OPTIONAL_CHAT_BACKEND_CACHE, independent of
+    # AeroLLMBackend's OWN model-keyed _shared cache. If AEROLLM_MODEL
+    # changes between requests, _get_optional_chat_backend("aerollm")
+    # without expected_model= silently hands back whatever model is
+    # ALREADY resident (the singleton can't hot-swap), and the
+    # override_model logic below only relabels active_backend.model_name
+    # — a cosmetic string, not a reload — so the system prompt (and the
+    # UI's own picker label) claimed one model while the resident weights
+    # that actually answered were a completely different one the operator
+    # had loaded earlier in the process's lifetime. Passing expected_model
+    # here makes that a loud, honest refusal instead.
     deep_backend = None
     if wants_deep:
         try:
@@ -7024,6 +7062,11 @@ def _prepare_chat_context(
             # requested model. Refusing here means that relabel block can
             # never fire a mismatched rename for deep_backend again — by
             # the time it runs, identity is already guaranteed to agree.
+            # (An independent, near-identical fix for this exact gap
+            # landed on main as abb0a72 while this branch was in flight —
+            # same call site, same exception; kept this branch's message
+            # since it points at the real fix, the Deep picker's in-
+            # process swap, rather than telling the operator to restart.)
             deep_expected = (model_override or "").strip() or None
             deep_backend = _get_optional_chat_backend(
                 optional_backend_name, expected_model=deep_expected)
@@ -7128,7 +7171,16 @@ def _prepare_chat_context(
     # with a *different* model than the one requested; this refuses.
     from arail.registry.ceiling import ModelCeilingViolation, resolve_answering_model
     _ceiling_model = str(getattr(active_backend, "model_name", "") or "")
-    _ceiling_role = "secondary" if wants_deep else "primary"
+    # Column B ("2nd inference") is never the sole answering model — whatever
+    # is loaded there (aerollm/airllm, or any other model a user drops in via
+    # "use as B") is checked against the hardware-cap secondary role, not the
+    # strict <8B primary ceiling. Without this, `branch: "B"` from the client
+    # (buildBody() in chat.html) was captured for conversation persistence but
+    # never reached here, so a >=8B model placed in the UI's own "2nd ·
+    # aeroLLM" slot got refused as if it were trying to answer as primary —
+    # the exact "cannot serve as the answering model... use it as the AeroLLM
+    # secondary instead" message the UI was already showing it as.
+    _ceiling_role = "secondary" if (wants_deep or str(side).strip().upper() == "B") else "primary"
     _ceiling_backend_name = str(getattr(active_backend, "backend_name", "") or type(active_backend).__name__)
     try:
         model_provenance = resolve_answering_model(
@@ -7250,6 +7302,7 @@ async def _run_chat_completion_stream(
     max_tokens: int,
     runtime_override: str | None = None,
     think: bool | None = None,
+    side: str = "A",
 ) -> AsyncIterator[dict[str, Any]]:
     context = _prepare_chat_context(
         message=message,
@@ -7257,6 +7310,7 @@ async def _run_chat_completion_stream(
         backend_override=backend_override,
         model_override=model_override,
         runtime_override=runtime_override,
+        side=side,
     )
     error_result = context.get("error_result")
     if error_result is not None:
@@ -7435,6 +7489,7 @@ async def _run_chat_completion(
     top_p: float | None,
     max_tokens: int,
     runtime_override: str | None = None,
+    side: str = "A",
 ) -> dict:
     """Core of the /api/chat non-streaming path.
 
@@ -7449,6 +7504,7 @@ async def _run_chat_completion(
         backend_override=backend_override,
         model_override=model_override,
         runtime_override=runtime_override,
+        side=side,
     )
     error_result = context.get("error_result")
     if error_result is not None:
@@ -7819,6 +7875,7 @@ async def api_chat(request: Request):
         body.get("model"),
         body.get("runtime"),
     )
+    branch = str(body.get("branch") or "A").strip() or "A"
 
     return await _run_chat_completion(
         message=message,
@@ -7829,6 +7886,7 @@ async def api_chat(request: Request):
         top_p=top_p,
         max_tokens=int(body.get("max_tokens") or 512),
         runtime_override=runtime_override,
+        side=branch,
     )
 
 
@@ -8073,6 +8131,7 @@ async def api_chat_stream(request: Request):
             max_tokens=int(body.get("max_tokens") or 512),
             runtime_override=stream_runtime,
             think=think,
+            side=branch,
         ):
             if event.get("type") == "delta":
                 pieces.append(str(event.get("delta") or ""))
@@ -8168,17 +8227,32 @@ def _resilient_chat_default(candidate: str | None) -> str | None:
     Handles name drift across versions without forcing operators to edit `.env`:
       - v1.1+ default: `llama-ai-eng` (Llama-3.2-1B + AI-engineer persona, Built with Llama)
       - v1.0.0 name: `ai-eng:latest`
-      - pre-v1.0.0 name: `ai-engineer:latest`
+    Both names above are the SAME ~1B persona, renamed once across releases.
 
-    Candidate list checked in preference order (back-compat):
-      ["llama-ai-eng", "ai-eng:latest", "ai-engineer:latest"]
-    Then any installed model matching the ai-eng-family regex.
+    `ai-engineer` / `ai-engineer:latest` is a DIFFERENT, larger model — the
+    maximus deep persona (Qwen2.5-7B-Instruct, ~7B params; see
+    models/ai-eng/Modelfile.deep and model_specs.MODEL_METADATA_OVERRIDES). It
+    was ARAIL's original, pre-two-tier default (based on qwen3:8b, then
+    qwen2.5:7b — never a ~1B model under any name) before the MODEL-TIERS-V2
+    split repositioned it as the deep persona. It is deliberately NOT treated
+    as a rename of llama-ai-eng/ai-eng below: scripts/setup.sh handles a
+    legacy ai-engineer:latest install the same way (adopts it as the deep
+    model, installs the 1B default separately, and explicitly does not alias
+    it to llama-ai-eng — "ai-engineer:latest is the 7B deep model").
 
-    Preference order when falling back:
-      1. any installed model matching the ai-eng-family regex (covers all three names)
-      2. `qwen2.5:7b` (documented preview base)
-      3. the first installed model (any runtime)
-      4. the original `candidate` (so we don't lose info if nothing installed yet)
+    Candidate list checked in preference order (back-compat, confident
+    same-model aliases only): ["llama-ai-eng", "ai-eng:latest"]
+    Then any installed model matching the llama-ai-eng/ai-eng family regex
+    (still excludes ai-engineer).
+
+    If no confident alias is installed, falls back to the first installed
+    model that the answering-model ceiling accepts as primary. That scan can
+    still land on ai-engineer:latest if it's the only thing installed — but
+    unlike the aliases above, that's a genuine guess across differently
+    sized models, not a known rename of `candidate`, so it's logged as a
+    warning rather than returned silently. If nothing installed passes the
+    ceiling either, returns the original `candidate` unchanged so the
+    ceiling can refuse it loudly downstream.
     """
     if not candidate:
         return candidate
@@ -8192,12 +8266,14 @@ def _resilient_chat_default(candidate: str | None) -> str | None:
         return candidate
     if not ids:
         return candidate
-    # Check the back-compat candidate list in preference order.
-    for preferred in ("llama-ai-eng", "ai-eng:latest", "ai-engineer:latest"):
+    # Check the back-compat candidate list in preference order. These are
+    # confident renames of the SAME model — ai-engineer is excluded on
+    # purpose, see docstring.
+    for preferred in ("llama-ai-eng", "ai-eng:latest"):
         if preferred in ids:
             return preferred
     import re as _re
-    _ai_eng_rx = _re.compile(r"^(?:llama-ai-eng|ai-eng(?:ineer)?)(?::|$)", _re.IGNORECASE)
+    _ai_eng_rx = _re.compile(r"^(?:llama-ai-eng|ai-eng)(?::|$)", _re.IGNORECASE)
     for mid in ids:
         if _ai_eng_rx.match(mid):
             return mid
@@ -8206,16 +8282,25 @@ def _resilient_chat_default(candidate: str | None) -> str | None:
     # installed) or `ids[0]` (whatever the first installed model happens to
     # be — Phase 1 review finding: this is one of the paths a >=8B model
     # can silently become the answering model), pick the first installed
-    # id that the answering-model ceiling actually accepts as primary.
-    # Refuse (return the original candidate, which the ceiling will also
-    # refuse loudly downstream) rather than guess.
+    # id that the answering-model ceiling actually accepts as primary. This
+    # can still resolve to ai-engineer:latest (7B) — that's fine as a last
+    # resort, but it must be visible rather than silent (see docstring).
     from arail.registry.ceiling import resolve_answering_model, ModelCeilingViolation
     for mid in ids:
         try:
             resolve_answering_model(mid, role="primary", backend="ollama_native")
-            return mid
         except ModelCeilingViolation:
             continue
+        _log.warning(
+            "_resilient_chat_default: %r not installed and no renamed alias "
+            "found; falling back to %r. It passes the primary-model ceiling "
+            "but is not a known rename of the requested model, so this may "
+            "be a different-sized model than intended.",
+            candidate, mid,
+        )
+        return mid
+    # Refuse (return the original candidate, which the ceiling will also
+    # refuse loudly downstream) rather than guess.
     return candidate
 
 
@@ -10723,8 +10808,12 @@ async def system_health():
     activity_file = Path.cwd() / "lab" / "data" / "activity.jsonl"
     workflow_file = Path.cwd() / "lab" / "data" / "agent_workflows.json"
     current_goal = goal_store.get_current()
-    current_model_path = os.getenv("ARAIL_MODELS_DIR", str(Path.cwd() / "models"))
-    from arail.config import DATA_DIR, PKB_ROOT
+    from arail.config import DATA_DIR, MODELS_DIR, PKB_ROOT
+    # Same env var + default (lab/models, NOT cwd/models) arail.config and
+    # every model-loading backend already use — this diagnostic used to
+    # disagree with reality and could report "Models Directory: missing"
+    # right next to a lab that had models loading fine.
+    current_model_path = str(MODELS_DIR)
 
     def add_check(
         check_id: str,

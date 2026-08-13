@@ -16,6 +16,10 @@
     <span class="rx-tagline-note">(The git-branch-per-experiment ledger is the
     separate <a href="/tuning">Tuning</a> loop.)</span>
   </span>
+  <button type="button" class="rx-how-trigger" id="rx-how-trigger"
+          title="What Autoresearch actually does, in plain terms">
+    ❓ How does this work?
+  </button>
 </div>
 
 <!-- ═══ Cockpit strip (top) ═══ -->
@@ -303,8 +307,7 @@
     <h1>A rail for experiments.</h1>
     <p class="rx-empty-motto">
       If you can measure it, we can improve it.
-      <a class="rx-learn-link" href="/docs/agents-explained.md#the-research-loop"
-         target="_blank" rel="noopener">📖 How the loop works</a>
+      <a class="rx-learn-link" href="#" id="rx-empty-how-link">📖 How the loop works</a>
     </p>
     <p>Set a goal and the lab drafts a swarm. Every winning variant becomes a branch —
        <code>autoresearch/&lt;id&gt;</code> — committed to your repo so you can review
@@ -353,6 +356,78 @@
       <button class="rx-btn" id="rx-modal-cancel">Cancel</button>
       <button class="rx-btn primary" id="rx-modal-submit">Review Swarm</button>
     </div>
+  </div>
+</div>
+
+<!-- ═══ "How does this work?" explainer modal ═══
+     Plain-language walkthrough of the REAL Autoresearch loop
+     (mini_experiments.py: Plan → Design → Run → Report). Deliberately
+     does not use git-commit/keep/revert language — that's the separate
+     /tuning loop. The point here is "learning, not just doing": every
+     step exists to make sure what gets written down is actually true. -->
+<div class="rx-modal" id="rx-how-modal" hidden>
+  <div class="rx-modal-card rx-how-card">
+    <button class="rx-modal-close" id="rx-how-close" type="button" aria-label="Close">&times;</button>
+    <h2>How Autoresearch actually works</h2>
+    <p class="rx-how-lede">
+      It's not a task-runner ticking off a checklist. It's a small learning
+      loop — try an idea, actually measure it, write down the honest
+      answer, then do it again with what it just learned.
+    </p>
+
+    <ol class="rx-how-steps">
+      <li class="rx-how-step">
+        <span class="rx-how-step-icon">🧠</span>
+        <div class="rx-how-step-body">
+          <span class="rx-how-step-title">1. Plan</span>
+          <p>Your goal becomes a handful of testable ideas — not just one
+             guess. You can see which ideas it picked and which it set
+             aside, and why.</p>
+        </div>
+      </li>
+      <li class="rx-how-step">
+        <span class="rx-how-step-icon">🎯</span>
+        <div class="rx-how-step-body">
+          <span class="rx-how-step-title">2. Design</span>
+          <p>Each idea gets matched to something that can actually be
+             measured on your machine — model speed, prompt quality,
+             how well your Knowledge Base answers a question. No idea
+             runs without a real way to check it.</p>
+        </div>
+      </li>
+      <li class="rx-how-step">
+        <span class="rx-how-step-icon">▶</span>
+        <div class="rx-how-step-body">
+          <span class="rx-how-step-title">3. Run</span>
+          <p>The experiment runs for real, locally. If it can't run yet
+             — no model loaded, nothing to measure against — it says so
+             plainly instead of inventing a number.</p>
+        </div>
+      </li>
+      <li class="rx-how-step">
+        <span class="rx-how-step-icon">📋</span>
+        <div class="rx-how-step-body">
+          <span class="rx-how-step-title">4. Report</span>
+          <p>The result gets written to the Knowledge Base labeled
+             <em>measured</em>, <em>not run</em>, or <em>unmeasured</em> —
+             so you always know what's a real number versus what's just
+             the model's commentary on it.</p>
+        </div>
+      </li>
+    </ol>
+
+    <div class="rx-how-callout">
+      <strong>The point isn't more experiments — it's not being wrong.</strong>
+      A result only counts if it was actually measured. Nothing here
+      fabricates a win to look productive; a plateau or a "couldn't test
+      that" is reported just as plainly as a success.
+    </div>
+
+    <p class="rx-how-foot">
+      <a href="/docs/agents-explained.md#the-research-loop" target="_blank" rel="noopener">
+        Read the full technical write-up →
+      </a>
+    </p>
   </div>
 </div>
 
@@ -1333,6 +1408,14 @@ function closeModal() {
   document.getElementById('rx-modal').hidden = true;
 }
 
+// ── "How does this work?" explainer modal ───────────────────────
+function openHowModal() {
+  document.getElementById('rx-how-modal').hidden = false;
+}
+function closeHowModal() {
+  document.getElementById('rx-how-modal').hidden = true;
+}
+
 // ── Wiring ────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
   // Buttons
@@ -1399,7 +1482,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Global Esc closes modal
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') closeModal();
+    if (e.key === 'Escape') { closeModal(); closeHowModal(); }
+  });
+
+  // "How does this work?" explainer — tagline trigger + empty-state link
+  // both open the same modal; backdrop click and the × button close it.
+  const howTrigger = document.getElementById('rx-how-trigger');
+  if (howTrigger) howTrigger.addEventListener('click', openHowModal);
+  const howLink = document.getElementById('rx-empty-how-link');
+  if (howLink) howLink.addEventListener('click', (e) => { e.preventDefault(); openHowModal(); });
+  document.getElementById('rx-how-close').addEventListener('click', closeHowModal);
+  document.getElementById('rx-how-modal').addEventListener('click', (e) => {
+    if (e.target.id === 'rx-how-modal') closeHowModal();
   });
 
   const bind = (id, ev, fn) => {

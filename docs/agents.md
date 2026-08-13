@@ -11,6 +11,7 @@ related:
   - agents-explained
   - BUDDY
   - api-conventions
+  - agent-loop
 ---
 # Agents — Architecture
 

@@ -145,6 +145,12 @@ _pkb_root_cache: Path | None = None  # set by ensure_ready
 #   "provenance" — the sidecar disagrees with (or is absent for) the spec.
 #                  Cleared the same way as "dimension".
 #   "empty"      — the table has zero rows. Cleared only by a rebuild.
+#   "backend"    — vector_index.available() is False: the running
+#                  interpreter cannot import the vector backend at all
+#                  (defect B, sprints/2026-08-10-arail2-persistence-
+#                  instantiated). Cleared only by a later successful
+#                  available() observation or a full rebuild — a
+#                  successful embed call is not evidence about this code.
 _degraded_codes: dict[str, str] = {}
 
 # Required columns (and their expected presence) for schema validation.

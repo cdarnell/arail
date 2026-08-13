@@ -42,6 +42,18 @@ info()  { echo -e "${GREEN}[arail]${RESET} $*"; }
 warn()  { echo -e "${YELLOW}[arail]${RESET} $*"; }
 error() { echo -e "${RED}[arail]${RESET} $*"; exit 1; }
 
+# ARCHITECTURE.md §10 finding 2 (PR #181 CI, sprints/2026-08-10-arail2-
+# persistence-instantiated): resolve_data_dirs() lives in
+# scripts/lib/instances.sh, needed below by setup_db_ensure(). It reads
+# $REPO_ROOT directly (no CWD fallback of its own), so pin it as a real
+# global here rather than only ever using the ${REPO_ROOT:-$PWD} inline
+# fallback the rest of this file uses. Sourced the same way install.sh
+# does — a no-op if the file is somehow missing rather than a hard
+# failure, since this whole step is itself required to never fail setup.
+REPO_ROOT="${REPO_ROOT:-$PWD}"
+# shellcheck disable=SC1091
+[[ -f "$REPO_ROOT/scripts/lib/instances.sh" ]] && source "$REPO_ROOT/scripts/lib/instances.sh"
+
 # Self-sufficient install policy:
 #   ARAIL_NONINTERACTIVE=1  → never prompt; default-yes everything (agent-driven)
 #   ARAIL_AUTO_INSTALL=0    → never auto-install; preserve old "tell user to install" behavior
@@ -1796,6 +1808,56 @@ YAML
 }
 
 # -----------------------------------------------------------------------------
+# Relational store readiness (ARCHITECTURE.md §10 finding 2, PR #181 CI —
+# sprints/2026-08-10-arail2-persistence-instantiated)
+# -----------------------------------------------------------------------------
+# CLAUDE.md documents `./arailctl setup && ./arailctl start` as the first-run
+# path; §4.5/§4.6 of the sprint's ARCHITECTURE.md wired ensure_db into
+# `start` and `install` but never `setup` — a design omission, not builder
+# drift (architect's own ruling). Without this, `doctor` between `setup` and
+# the first `start` honestly reports relational_store as not instantiated
+# and exits 3, which is the check working correctly on a real gap, not a
+# check to be muted.
+#
+# This is a CALL SITE, not a new mechanism: reuses the exact shim
+# install.sh's own `_install_db_ensure` already uses, verbatim — the same
+# allowlist classifier, the same atlas.sum ledger verification, the same
+# safe-forward-only line (nothing about calling it from `setup` changes what
+# may be auto-applied). Sequenced after the deps phase (install_core_deps,
+# so `arail.dbspec.ensure` is importable) and after setup_runtime_files (so
+# `lab/` exists) — both already true by the time this runs in the main
+# sequence below. Driven by resolve_data_dirs(), not a hardcoded root, so
+# re-running `setup` on an existing multi-World lab behaves like `install`.
+# Local file + SQLite only — no network, no embedder, no Atlas — so the
+# airgapped default is unaffected.
+#
+# MUST NOT FAIL SETUP: warns and continues on any non-ok root, matching
+# `install` (degrades, never hard-fails) and `start` (warns, continues) —
+# never calls `error()`.
+setup_db_ensure() {
+    [[ -d "${REPO_ROOT:-$PWD}/.venv" ]] || return 0
+    if ! declare -F inst_resolve_data_dirs >/dev/null 2>&1; then
+        warn "db: skipped (scripts/lib/instances.sh not available) — run ./arailctl install later"
+        return 0
+    fi
+    local slug data_dir origin line rc
+    while IFS=$'\t' read -r slug data_dir origin; do
+        [[ -n "$data_dir" ]] || continue
+        line="$(cd "${REPO_ROOT:-$PWD}" && source .venv/bin/activate && \
+            python -m arail.dbspec.ensure "$data_dir" --apply --quiet-ok 2>&1)"
+        rc=$?
+        if [[ -n "$line" ]]; then
+            if [[ "$rc" == "0" ]]; then
+                info "db: ${line}"
+            else
+                warn "db: ${line}"
+            fi
+        fi
+    done < <(inst_resolve_data_dirs)
+    return 0
+}
+
+# -----------------------------------------------------------------------------
 # Personal knowledge management scaffold
 # -----------------------------------------------------------------------------
 setup_pkb() {
@@ -2352,7 +2414,7 @@ main() {
     #   3/11 ensure_python + install_core_deps + load_pyproject_metadata + install_accel_deps
     #   4/11 capture_brand
     #   5/11 capture_password
-    #   6/11 setup_env + setup_runtime_files + validate_env
+    #   6/11 setup_env + setup_runtime_files + setup_db_ensure + validate_env
     #   7/11 setup_pkb
     #   8/11 download_model
     #   9/11 capture_goal
@@ -2370,6 +2432,7 @@ main() {
     capture_password
     setup_env
     setup_runtime_files
+    setup_db_ensure
     validate_env
     setup_pkb
     gentoo_notes

@@ -184,7 +184,11 @@ def check_knowledge_base() -> None:
         # exit 0 there unless --strict is passed) — C5 promises setup never
         # fails on this, and doctor must not contradict that promise.
         codes = pkb_index.degraded_codes()
-        required_codes = set(codes) & {"dimension", "provenance"}
+        # "backend" (defect B, sprints/2026-08-10-arail2-persistence-
+        # instantiated): LanceDB is a hard dep in both tiers, so an
+        # interpreter that cannot import it is a broken environment, not an
+        # optional-feature gap — same tier as "dimension"/"provenance".
+        required_codes = set(codes) & {"dimension", "provenance", "backend"}
         _record("embedding_provenance", "required", not required_codes, embed_reason)
         _record("embedding_reachable", "info", embed_ok, embed_reason)
     except Exception as e:  # noqa: BLE001
@@ -233,6 +237,37 @@ def check_knowledge_base() -> None:
                 f"{len(dangling)} dangling of {len(approved)}")
     except Exception as e:  # noqa: BLE001
         _record("compiled_kb_dangling", "info", True, f"skipped: {e}")
+
+
+def check_provisioning() -> None:
+    """The class check (sprints/2026-08-10-arail2-persistence-instantiated
+    §5): every declared mechanism names its own instantiation predicate.
+    "Declared and not instantiated" is always a finding here, never
+    silence — this is what would have caught defect A (the relational
+    store) and defect B (the vector backend) before either shipped."""
+    _section("Provisioning (declared vs. instantiated)")
+    try:
+        from arail import provisioning
+        from arail import config
+        # REVIEW.md ASK-1: repo_root=os.getcwd() mis-reported (a silent,
+        # non-degrading "unavailable" on a healthy DB) whenever doctor ran
+        # from a subdirectory. Derived from the package location instead —
+        # the same technique arail.dbspec.ensure.DEFAULT_SPEC_DIR already
+        # uses — so it no longer depends on where the caller happened to
+        # be standing.
+        from arail.dbspec.ensure import DEFAULT_SPEC_DIR
+        repo_root = DEFAULT_SPEC_DIR.parent
+        assertions = provisioning.evaluate_all(
+            repo_root=str(repo_root), data_dir=str(config.DATA_DIR))
+        for a in assertions:
+            mark = "OK" if not a.finding else ("MISSING" if a.declared else "off")
+            _p(f"  [{a.tier:<8}] {a.key:<22}: {mark}"
+               + (f" — {a.detail}" if a.detail else ""))
+            if a.finding and a.action:
+                _p(f"             fix: {a.action}")
+            _record(f"provisioning_{a.key}", a.tier, not a.finding, a.detail)
+    except Exception as e:  # noqa: BLE001
+        _p(f"  provisioning check failed: {type(e).__name__}: {e}")
 
 
 def check_components() -> None:
@@ -316,6 +351,7 @@ def main(argv: list[str] | None = None) -> int:
     check_environment()
     check_models()
     check_knowledge_base()
+    check_provisioning()
     check_components()
     if args.updates:
         check_updates()

@@ -2756,7 +2756,12 @@
       // genuinely selected. deep.model_id used to be a silent fallback
       // here — it names the CONFIGURED default even when that default
       // was never downloaded, making the strip claim a selection that
-      // doesn't exist.
+      // doesn't exist. Unlike main's older "use as B" design, Column B
+      // here can ONLY ever be the deep/aerollm slot (selectDeepModel is
+      // the sole setter of State.bId/State.bModel and always hardcodes
+      // runtime: 'aerollm') — so there's no heterogeneous-runtime case
+      // to defend against, and the header stays "Deep" for terminology
+      // consistency with the rest of this UI.
       html += State.bId
         ? cell('b', 'Deep · aeroLLM', State.bId,
                bSpec.params || (deep.params_b ? `~${deep.params_b}B` : '?'), 'resident via aeroLLM')
@@ -3558,6 +3563,9 @@
     // the two header chips now show directly: name, warm dot, an eject
     // action when something can actually be freed. No second surface to
     // keep in sync, no scrolling required to see or change either slot.
+    // (main independently patched renderModelRail's whole-card-click
+    // footgun and eject-honesty gating after this sprint deleted it —
+    // moot here; there's no rail left to have those bugs.)
     function updateChipWarmState() {
       const chipA = $('model-picker');
       if (chipA) {
