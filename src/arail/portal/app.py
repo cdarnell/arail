@@ -4263,6 +4263,140 @@ async def research_reset():
     return {"status": "idle"}
 
 
+@app.post("/api/research/deep")
+async def post_research_deep(request: Request):
+    """Flip deep (aeroLLM) research passes on/off — persisted to ``.env``.
+
+    Same rails as the airgap toggle: loopback-bind + Sec-Fetch-Site +
+    Origin/Host CSRF gates, atomic ``.env`` write, then an ``os.environ``
+    write-through so the very next research pass sees the change without a
+    restart (the researcher reads AEROLLM_RESEARCH at call time).
+    Tier-honest: minimalist gets a 403 with the upgrade hint instead of a
+    dead switch. The env is only mutated after a successful file write so
+    live and persisted state cannot diverge.
+    """
+    from arail.env_writer import EnvWriterError, set_env_var
+    from arail.tier import is_maximus
+
+    gate_error = _check_local_mutation_request(request)
+    if gate_error is not None:
+        return gate_error
+    if not is_maximus():
+        return JSONResponse(status_code=403, content={
+            "error": "tier_locked",
+            "message": "Deep research passes need the maximus tier — run "
+                       "./arailctl upgrade maximus.",
+        })
+
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    enabled = body.get("enabled") if isinstance(body, dict) else None
+    if not isinstance(enabled, bool):
+        return JSONResponse(status_code=400, content={"error": "invalid_enabled"})
+
+    value = "true" if enabled else "false"
+    try:
+        set_env_var(_toggle_env_path(), "AEROLLM_RESEARCH", value)
+    except EnvWriterError as exc:
+        _log.error("research deep toggle: env write failed: %s", exc)
+        return JSONResponse(status_code=500, content={"error": "env_write_failed"})
+    except Exception as exc:  # noqa: BLE001
+        _log.error("research deep toggle: unexpected error: %s", exc)
+        return JSONResponse(status_code=500, content={"error": "env_write_failed"})
+    os.environ["AEROLLM_RESEARCH"] = value
+    activity_log.emit(
+        "researcher",
+        ("Deep research passes turned on — planning and interpretation may "
+         "use the aeroLLM deep model." if enabled else
+         "Deep research passes turned off — research runs on the fast "
+         "model only."),
+        "info")
+    return {"ok": True, "enabled": enabled, "models": _research_models_block()}
+
+
+def _research_models_block() -> dict | None:
+    """What research actually runs on, with honest deep eligibility.
+
+    ``fast`` is the model the experiment engine and most planning calls
+    use (a dry-run of the same resolve the researcher does); ``deep`` is
+    the aeroLLM slot with a reason code the truth strip can render:
+    tier_locked | wheel_missing | disabled | deferred_now | ok.
+    Availability (tier/wheel) outranks the operator's toggle so a
+    minimalist user sees a locked control, not a dead one. Never raises —
+    returns None and the strip hides.
+    """
+    try:
+        from arail.agents import deep_policy
+        from arail.agents.researcher import research_deep_enabled
+        from arail.registry import get_registry
+        from arail.registry.store import TIER1_ID
+        from arail.tier import get_current_tier
+
+        reg = get_registry()
+        fast = None
+        try:
+            entry = reg.resolve("fast", tab="research").entry
+            if entry is not None:
+                fast = {
+                    "entry_id": entry.id,
+                    "display_name": entry.display_name or entry.model_id,
+                    "backend": entry.backend,
+                    "provider_type": entry.provider_type,
+                    "health": getattr(entry.health, "status", "unknown"),
+                }
+        except Exception:  # noqa: BLE001
+            fast = None
+
+        tier1 = None
+        try:
+            tier1 = reg.entries.get(TIER1_ID)
+        except Exception:  # noqa: BLE001
+            pass
+        deep_name = (tier1.display_name if tier1 is not None else
+                     os.getenv("AEROLLM_MODEL", "Qwen2.5-7B-Instruct-4bit"))
+
+        enabled_by_user = research_deep_enabled()
+        eligible, code, detail = deep_policy.explain(foreground=False)
+        if not enabled_by_user and code not in ("tier_locked", "wheel_missing"):
+            eligible = False
+            code = "disabled"
+            detail = ("deep passes are switched off — flip the toggle to use "
+                      "the aeroLLM deep model for planning and interpretation")
+
+        return {
+            "tier": get_current_tier(),
+            "fast": fast,
+            "deep": {
+                "entry_id": TIER1_ID,
+                "display_name": deep_name,
+                "available": code not in ("tier_locked", "wheel_missing"),
+                "enabled_by_user": enabled_by_user,
+                "eligible_now": eligible,
+                "reason_code": code,
+                "reason": detail,
+            },
+        }
+    except Exception as e:  # noqa: BLE001 — status must never break on this
+        _log.debug("research models block unavailable: %s", e)
+        return None
+
+
+@app.get("/api/research/options")
+async def research_options():
+    """World-aligned research directions for the Autoresearch tab.
+
+    Derived generically from whatever World is mounted (spec categories,
+    roster/drift gaps, agenda watches) with generic archetype-grounded
+    seeds when unmounted — see arail.research.options. Pure and cheap;
+    no cache.
+    """
+    from arail.airgap import is_airgapped
+    from arail.research.options import options_payload
+    return options_payload(airgapped=is_airgapped())
+
+
 @app.get("/api/research/status")
 async def research_status():
     current = goal_store.get_current()
@@ -4273,6 +4407,7 @@ async def research_status():
         "report": current.get("report") if current else None,
         "redirect": get_agent_redirect("researcher"),
         "run_state": goals_mod.load_run_state(),
+        "models": _research_models_block(),
     }
 
 
