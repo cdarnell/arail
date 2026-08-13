@@ -7084,7 +7084,9 @@ def _prepare_chat_context(
                     f"load it from the Deep picker first."
                 ),
                 "backend": None,
-                "model": exc.requested_model,
+                # The resident model, never the mismatched request — the
+                # whole point of this refusal is no relabeling.
+                "model": exc.resident_model,
                 "error": str(exc),
             }}
         except Exception as e:  # noqa: BLE001
