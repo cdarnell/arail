@@ -10147,8 +10147,12 @@ async def system_health():
     activity_file = Path.cwd() / "lab" / "data" / "activity.jsonl"
     workflow_file = Path.cwd() / "lab" / "data" / "agent_workflows.json"
     current_goal = goal_store.get_current()
-    current_model_path = os.getenv("ARAIL_MODELS_DIR", str(Path.cwd() / "models"))
-    from arail.config import DATA_DIR, PKB_ROOT
+    from arail.config import DATA_DIR, MODELS_DIR, PKB_ROOT
+    # Same env var + default (lab/models, NOT cwd/models) arail.config and
+    # every model-loading backend already use — this diagnostic used to
+    # disagree with reality and could report "Models Directory: missing"
+    # right next to a lab that had models loading fine.
+    current_model_path = str(MODELS_DIR)
 
     def add_check(
         check_id: str,
