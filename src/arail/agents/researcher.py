@@ -176,6 +176,19 @@ def _get_router():
         return None
 
 
+def research_deep_enabled() -> bool:
+    """The operator's deep-passes preference for research (AEROLLM_RESEARCH).
+
+    Single source of the semantics: read here by the deep-router gate, by
+    the portal's research-status models block, and by the deep toggle
+    endpoint — so the UI can never disagree with what the agent does.
+    Code default is on; ``.env.example`` ships it off, so arailctl installs
+    start disabled until the operator flips the tab's toggle.
+    """
+    import os
+    return os.getenv("AEROLLM_RESEARCH", "true").lower() not in ("0", "false", "no")
+
+
 def _get_deep_router():
     """The shared aeroLLM deep router (the "2nd inference") for research.
 
@@ -183,8 +196,7 @@ def _get_deep_router():
     Delegates to ``arail.agents.deep_policy`` so the lab keeps a SINGLE resident
     deep model across all agents — two copies would OOM the box.
     """
-    import os
-    if os.getenv("AEROLLM_RESEARCH", "true").lower() in ("0", "false", "no"):
+    if not research_deep_enabled():
         return None
     try:
         # Registry resolution honors per-tab overrides (e.g. Claude when
@@ -811,6 +823,27 @@ class ResearcherAgent:
             activity_log.emit("researcher",
                               f"Starting research ({intent_name}): {goal_text}",
                               "success")
+            # One honest line per run about the deep (aeroLLM) model. When
+            # deep passes are off/unavailable the fallback used to be silent
+            # (_get_deep_router returns None and _deep_complete emits nothing)
+            # — the actual deep-use event still fires from _deep_complete.
+            try:
+                from arail.agents import deep_policy as _dp
+                if not research_deep_enabled():
+                    activity_log.emit(
+                        "researcher",
+                        "Deep passes off for this run: switched off "
+                        "(AEROLLM_RESEARCH) — running on the fast model.",
+                        "info")
+                else:
+                    _ok, _code, _detail = _dp.explain(foreground=False)
+                    if not _ok:
+                        activity_log.emit(
+                            "researcher",
+                            f"Deep passes off for this run: {_detail}.",
+                            "info")
+            except Exception:  # noqa: BLE001
+                pass
             if swarm_plan:
                 worker_labels = ", ".join(
                     str(worker.get("label") or worker.get("id") or "worker")

@@ -58,41 +58,75 @@ def _aerollm_importable() -> bool:
         return False
 
 
-def background_safe() -> bool:
-    """True when running the heavy 2nd inference in the background right now
-    would not be intrusive (window / presence / profile / memory)."""
+def _background_gate() -> "tuple[bool, str, str]":
+    """Walk the background non-intrusiveness checks, in policy order.
+
+    Returns ``(ok, reason_code, detail)`` — code/detail empty when ok.
+    Extracted from background_safe() so explain() can name the failing
+    gate without duplicating the decision logic.
+    """
     from arail import runtime_profile, scheduler
     if scheduler.jobs_halted():
-        return False
+        return False, "deferred_now", "background jobs are halted"
     if scheduler.current_window() == "active":
-        return False
+        return (False, "deferred_now",
+                "inside the active work window — deep passes run in "
+                "heavy/idle hours")
     profile, _ = runtime_profile.resolve()
     if profile == "interactive":  # operator is present — yield to them
-        return False
+        return (False, "deferred_now",
+                "operator present (interactive profile) — deep passes run "
+                "when the lab is idle")
     if not runtime_profile.params(profile).get("background_aerollm"):
-        return False
+        return (False, "deferred_now",
+                f"runtime profile '{profile}' disables background aeroLLM")
     try:
         from arail.router.mlx_guard import metal_memory_pressure
         pressure = metal_memory_pressure()
     except Exception:  # noqa: BLE001
         pressure = None
     if pressure is not None and pressure >= _bg_pressure_ceiling():
-        return False
-    return True
+        return (False, "deferred_now",
+                f"memory pressure {pressure:.0%} is above the background "
+                "ceiling")
+    return True, "", ""
+
+
+def background_safe() -> bool:
+    """True when running the heavy 2nd inference in the background right now
+    would not be intrusive (window / presence / profile / memory)."""
+    return _background_gate()[0]
+
+
+def explain(*, foreground: bool) -> "tuple[bool, str, str]":
+    """``prefer_deep`` with its reason: ``(ok, reason_code, detail)``.
+
+    reason_code ∈ {"ok", "disabled", "tier_locked", "wheel_missing",
+    "deferred_now"}. prefer_deep() is a boolean projection of this walk,
+    so the UI's explanation and the agents' decision can never drift.
+    """
+    from arail.tier import is_maximus
+    if not _enabled():
+        return (False, "disabled",
+                "ARAIL_AGENT_DEEP is off (agent deep-inference kill switch)")
+    if not is_maximus():
+        return (False, "tier_locked",
+                "deep inference needs the maximus tier — run "
+                "./arailctl upgrade maximus")
+    if not _aerollm_importable():
+        return (False, "wheel_missing",
+                "aerollm_api is not installed — run ./arailctl deep install")
+    if foreground:
+        return True, "ok", "deep inference available"
+    ok, code, detail = _background_gate()
+    if not ok:
+        return False, code, detail
+    return True, "ok", "deep passes will run in the background"
 
 
 def prefer_deep(*, foreground: bool) -> bool:
     """The single yes/no: use the aeroLLM 2nd inference for this call?"""
-    from arail.tier import is_maximus
-    if not _enabled():
-        return False
-    if not is_maximus():
-        return False
-    if not _aerollm_importable():
-        return False
-    if foreground:
-        return True
-    return background_safe()
+    return explain(foreground=foreground)[0]
 
 
 def get_deep_router():

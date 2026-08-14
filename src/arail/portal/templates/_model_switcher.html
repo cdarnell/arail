@@ -211,7 +211,11 @@
   function renderChip(tab, el){
     if(!state||!el) return;
     var byId={}; (state.entries||[]).forEach(function(e){byId[e.id]=e;});
-    var profile = (tab==='research'||tab==='build') ? 'reasoning' : 'fast';
+    // research maps to 'fast': the experiment engine runs on the fast
+    // binding unconditionally; the deep (reasoning) model is policy-gated
+    // and shown separately on /research's truth strip. Advertising
+    // 'reasoning' here named a model most runs never touch.
+    var profile = (tab==='build') ? 'reasoning' : 'fast';
     var ov=(state.tab_overrides||{})[tab]||{};
     var id = ov[profile]||ov['*']||(state.bindings||{})[profile];
     var e = id && byId[id];
