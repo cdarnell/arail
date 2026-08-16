@@ -543,6 +543,10 @@
   .pr-btn:hover { border-color: var(--border-strong); color: var(--text-strong); }
   .pr-btn.pr-btn-danger:hover { border-color: var(--danger); color: var(--danger); }
   .pr-note { font-size: 0.7rem; color: var(--warn); margin-top: 0.4rem; }
+  .pr-table { width: 100%; border-collapse: collapse; font-size: 0.72rem; margin-top: 0.3rem; }
+  .pr-table th, .pr-table td { text-align: left; padding: 0.35rem 0.5rem; border-bottom: 1px solid var(--border); }
+  .pr-table th { color: var(--text-muted); font-weight: 500; }
+  .pr-hint { font-size: 0.65rem; color: var(--text-muted); margin-top: 0.15rem; }
   .pr-err  { font-size: 0.7rem; color: var(--danger);  margin-top: 0.4rem; }
   .pr-vuln-row { font-size: 0.72rem; color: var(--text-muted); margin-bottom: 0.2rem; }
   .pr-vuln-row .pr-sev-crit { color: var(--danger); font-weight: 700; }
@@ -700,6 +704,12 @@
         <div class="models-empty">Loading models…</div>
       </div>
     </div>
+  </div>
+
+  <!-- ═══ Scheduler ═══ -->
+  <div class="admin-section">
+    <h2>Scheduler</h2>
+    <div id="scheduler-list" class="pr-card">Loading…</div>
   </div>
 
   <!-- ═══ Workbench ═══ -->
@@ -1586,5 +1596,43 @@ loadCleanup();
 loadSecurity();
 // Initialize Admin Models section
 loadModels();
+// Initialize Scheduler section
+loadScheduler();
+
+async function loadScheduler() {
+  const el = document.getElementById('scheduler-list');
+  try {
+    const r = await fetch('/api/admin/scheduler/status');
+    const data = await r.json();
+    if (!data.jobs || !data.jobs.length) {
+      el.innerHTML = '<div class="models-empty">No jobs registered.</div>';
+      return;
+    }
+    let html = `<div class="svc-status">daemon: ${data.daemon_status}</div><table class="pr-table">`;
+    html += '<tr><th>Job</th><th>Schedule</th><th>Last run</th><th>Status</th><th></th></tr>';
+    for (const j of data.jobs) {
+      const last = j.last_run_at ? j.last_run_at.replace('T', ' ').slice(0, 19) : 'never';
+      const status = j.last_status || '—';
+      const watch = j.watch_for ? `<div class="pr-hint">watching for: ${j.watch_for}</div>` : '';
+      html += `<tr><td>${j.name}${watch}</td><td>${j.schedule}</td><td>${last}</td><td>${status}</td>` +
+              `<td><button class="pr-btn" onclick="runSchedulerJob('${j.id}')">Run now</button></td></tr>`;
+    }
+    html += '</table>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div class="models-empty">Scheduler unavailable.</div>';
+    adminLog('Scheduler fetch failed: ' + e.message, 'error');
+  }
+}
+
+async function runSchedulerJob(jobId) {
+  try {
+    await fetch(`/api/admin/scheduler/jobs/${jobId}/run`, { method: 'POST' });
+    adminLog(`Ran job: ${jobId}`, 'info');
+    loadScheduler();
+  } catch (e) {
+    adminLog('Run failed: ' + e.message, 'error');
+  }
+}
 </script>
 {% endblock %}
