@@ -40,6 +40,7 @@ says so instead of inventing a question.
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Optional
 from urllib.parse import urlparse
 
@@ -121,6 +122,30 @@ def _progress(coach: Any) -> dict:
     return {"total": total, "seen": seen, "mastered": mastered}
 
 
+_HEX_RE = re.compile(r"^#[0-9a-fA-F]{6}$")
+_SLUG_RE = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
+
+
+def _presentation(fm: dict) -> dict:
+    """The subject's visual identity, sanitized.
+
+    AGENT.md is hot-editable by the operator and these values reach CSS, so
+    they are validated here rather than trusted: ``accent`` must be a plain
+    6-digit hex and ``palette`` a short slug the page maps to a built-in
+    look. Anything else is dropped and the page falls back to its default —
+    a coach with a typo'd color renders plainly instead of injecting a
+    style, and never breaks the bench for the other subject.
+    """
+    accent = str(fm.get("accent") or "").strip()
+    palette = str(fm.get("palette") or "").strip().lower()
+    return {
+        "subject": str(fm.get("subject") or "").strip()[:24],
+        "palette": palette if _SLUG_RE.match(palette) else "",
+        "accent": accent if _HEX_RE.match(accent) else "",
+        "greeting": str(fm.get("greeting") or "").strip()[:120],
+    }
+
+
 def _team() -> list[dict]:
     """Every coach on the team, in nav order.
 
@@ -148,6 +173,7 @@ def _team() -> list[dict]:
             "deck": str(fm.get("deck") or ""),
             "world": str(fm.get("world") or ""),
             "voice": str(fm.get("voice") or ""),
+            **_presentation(fm),
             "progress": _progress(coach),
         })
     return out
