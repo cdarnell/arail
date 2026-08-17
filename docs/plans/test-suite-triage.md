@@ -1,6 +1,7 @@
 # The 54 red tests — what they actually are
 
-> Status: **triage complete, fixes not started.** 2026-08-17.
+> Status: **triage complete; root cause found and 16 of 54 fixed.**
+> 2026-08-17.
 > Filed from `docs/plans/autoresearch-integration.md`, whose H0 finding
 > (the tuning loop could not commit at all) survived precisely because
 > nobody was watching this red.
@@ -23,6 +24,9 @@ same process — not defects in the code they point at.
 
 Method: extract every failing file from a full `-p no:randomly` run, then
 run each file standalone and compare.
+
+(Counts below are the pre-fix numbers, kept because the classification
+is what matters; 16 of the 33 pollution victims are now fixed.)
 
 | Class | Failures | What it means |
 |---|---:|---|
@@ -98,22 +102,88 @@ That gap is the actual defect. The 54 are a symptom.
 
 ## Recommended order
 
-1. **Find and fix the polluter** — highest leverage by a wide margin,
-   and the suite cannot be CI-gated until it is done. **Not found. See
-   the investigation below for what is ruled out**, so the next person
-   doesn't repeat it.
-2. **Then gate it.** Add a full-suite CI job. Doing this before (1) just
-   institutionalises the red.
-3. **Then work the 21** individually, starting with
+1. ~~Find and fix the polluter~~ — **done for the cascade: 54 → 38.**
+   The chain is traced below and cut in three places. What remains is the
+   `torch` double-import at the head of it, which no longer reaches the
+   router but is still wrong and will resurface elsewhere.
+2. **Find the torch double-import.** See "still open" below for what is
+   already ruled out.
+3. **Then gate it.** A full-suite CI job. Doing this before the count is
+   near zero just institutionalises the red.
+4. **Then work the 21** individually, starting with
    `test_instance_isolation_audit`.
 
 Do not "fix" pollution victims by loosening their assertions. They are
 correct; the process they run in is not.
 
-## The polluter hunt — what is ruled out
+## The cascade — found, and 16 of the 54 fixed
 
-Not solved. Recorded so the next attempt starts here rather than at the
-beginning.
+**The whole chain, end to end.** In a long run, `torch` gets imported a
+second time, which is impossible in one process:
+
+```
+RuntimeError: function '_has_torch_function' already has a docstring
+```
+
+That poisons `transformers`, which makes `mlx_lm` unimportable, which
+makes `MLXBackend.__init__` raise, which makes
+`_get_primary_router()` raise, which makes `/api/chat/models` hit its
+blanket `except` at `app.py:9425` and return a degraded four-key payload
+`{backend, current, models, error}`. Every test asserting on the real
+shape then fails with `KeyError: 'optional_backends'` / `'deep'` /
+`'compact'` or "Legacy branch dropped keys" — which is why this looked
+like an API regression and was not one.
+
+Two things had to be true at once, which is why no single file and
+neither half of the suite reproduced it:
+
+1. `torch` had been double-imported somewhere earlier, and
+2. `MODEL_BACKEND` was absent from the environment, so the router chose
+   MLX at all.
+
+(2) happens because several tests call `importlib.reload(arail.config)`;
+`arail.config` exports `MODEL_BACKEND` into `os.environ` as an import
+side effect, and a reload under a sandboxed env drops it.
+
+**Fixed (54 → 38 failures, nothing newly broken):**
+
+- `router/core.py` no longer falls back to the literal `"mlx"` when
+  `MODEL_BACKEND` is unset. It reads `config.MODEL_BACKEND` — the
+  project's own default, `"auto"` — lazily, so a reload cannot freeze it.
+- `_auto_detect` no longer claims MLX on the strength of hardware alone.
+  It verifies by **actually importing** `mlx_lm`, not by `find_spec`:
+  a spec that cannot execute is exactly this bug, and would have
+  "verified" a backend whose constructor then raised. Apple Silicon that
+  cannot load MLX now resolves to `ollama_native`.
+- `backends.py` stopped reporting every MLX import failure as
+  "MLX not installed. Run: pip install mlx mlx-lm". It now preserves the
+  real cause and chains it. That message is what made this expensive to
+  find — the package *was* installed.
+
+That last one is the honest lesson: a diagnostic that guesses its own
+cause cost more than the bug did.
+
+**Still open: the torch double-import itself.** The fixes above stop it
+cascading into the router, but something is still re-importing `torch`,
+and it will surface elsewhere eventually. What is ruled out, each with a
+run behind it:
+
+- No single file reproduces it: all nine 32-file chunks preceding the
+  victim came back clean, and so did each half of the 283-file prefix.
+- Not the files that reload `arail.config`/`arail.portal.app`
+  (`test_skill_packs`, `test_w9_embedder_swap`, `test_setup_extras`,
+  `test_docs_registry_qa`, `test_observability_under_load`) — each is
+  clean paired with the victim.
+- Not the two files that reference `transformers`/`torch` directly
+  (`test_pkb_index_qa`, `router/test_aerollm_chat_template`) nor
+  `test_build_qkz_corpus`, alone or all three together.
+- Not a live-Ollama probe: the victim passes with `OLLAMA_HOST` at a dead
+  port and with `ARAIL_SKIP_OLLAMA=1`.
+
+Next step I would take: instrument rather than bisect. A `conftest`
+hook that stamps `id(sys.modules.get("torch"))` after every test and
+prints when it changes will name the culprit in one run, where file-level
+bisection has already cost several and found nothing.
 
 **Reproduction.** Deterministic, no random ordering involved:
 

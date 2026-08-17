@@ -20,6 +20,51 @@ class CloudBackendBlocked(RuntimeError):
     """A cloud backend was requested while the lab is airgapped."""
 
 
+def _is_importable(module: str) -> bool:
+    """Can this module actually be imported, right now, in this process?
+
+    Deliberately a real import rather than ``find_spec``. A spec that
+    cannot execute is precisely the case that matters here: on a Mac
+    with mlx-lm on disk but a broken dependency chain, ``find_spec``
+    says yes and the import then raises — so detection would "verify"
+    MLX and hand back a backend whose constructor fails.
+
+    The import is not wasted work: the only reason to ask is that we are
+    about to construct this backend, which imports it anyway.
+    """
+    import importlib
+    try:
+        importlib.import_module(module)
+        return True
+    except Exception:
+        # Any failure — missing, half-installed, incompatible pair, a
+        # poisoned dependency — means "cannot use this backend", which is
+        # the only question being asked.
+        return False
+
+
+def _configured_backend() -> str:
+    """The lab's configured backend, or "auto" to detect.
+
+    Read lazily rather than captured at import: ``arail.config`` computes
+    MODEL_BACKEND from the env at *its* import time, and callers
+    (including tests) reload it. Binding the value here would freeze
+    whichever env happened to be live first.
+
+    This exists because the fallback used to be the literal ``"mlx"``.
+    That skipped ``config.MODEL_BACKEND`` entirely, so whenever
+    ``MODEL_BACKEND`` was absent from the environment the router built an
+    MLX backend on machines that had no MLX — ignoring the project's own
+    default of ``"auto"`` — and raised "MLX not installed" instead of
+    detecting what the box could actually run.
+    """
+    try:
+        from arail import config
+        return getattr(config, "MODEL_BACKEND", "auto") or "auto"
+    except Exception:  # pragma: no cover - config should always import
+        return "auto"
+
+
 def _check_cloud_allowed(name: str) -> None:
     if name in _CLOUD_BACKENDS:
         from arail.airgap import is_airgapped
@@ -38,7 +83,8 @@ class ModelRouter:
 
     def __init__(self, backend: str | None = None,
                  *, billing_source: str = "agent") -> None:
-        name = (backend or os.getenv("MODEL_BACKEND") or "mlx").lower()
+        name = (backend or os.getenv("MODEL_BACKEND")
+                or _configured_backend()).lower()
         if name == "auto":
             name = self._auto_detect()
         if name not in BACKEND_MAP:
@@ -72,12 +118,25 @@ class ModelRouter:
     # ------------------------------------------------------------------
     @staticmethod
     def _auto_detect() -> str:
-        """Best-effort platform detection (mirrors setup.sh logic)."""
+        """Best-effort platform detection (mirrors setup.sh logic).
+
+        Detection asks two questions per candidate, not one: is this the
+        right *hardware*, and is the runtime for it actually importable.
+        Apple Silicon without mlx-lm installed is a real configuration —
+        the minimalist tier does not install it — and answering "mlx"
+        there produces a hard ImportError from a code path whose whole
+        job is to pick something that works.
+        """
         import platform
-        if platform.system() == "Darwin" and platform.machine() == "arm64":
-            return "mlx"
-        # Check for Nvidia GPU
         import shutil
+
+        if platform.system() == "Darwin" and platform.machine() == "arm64":
+            if _is_importable("mlx_lm"):
+                return "mlx"
+            # Apple Silicon, but MLX cannot actually be loaded: Ollama is
+            # what setup installs by default and what the rest of the lab
+            # assumes.
+            return "ollama_native"
         if shutil.which("nvidia-smi"):
             return "cuda"
         return "cpu"

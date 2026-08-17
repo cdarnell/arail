@@ -178,8 +178,17 @@ class MLXBackend(BaseBackend):
             self._load = load
             self._generate = generate
             self._stream_generate = getattr(_mlx_lm, "stream_generate", None)
-        except ImportError:
-            raise ImportError("MLX not installed. Run: pip install mlx mlx-lm")
+        except ImportError as exc:
+            # Keep the real reason. "MLX not installed" is only one of the
+            # ways this import fails — a broken/partial install, an
+            # incompatible mlx/mlx-lm pair, or a sandbox that blocks the
+            # native extension all land here too, and reporting them all
+            # as "not installed" sends people to `pip install` for a
+            # problem pip already solved.
+            raise ImportError(
+                f"MLX backend unavailable: {exc}. "
+                "If mlx-lm is genuinely missing: pip install mlx mlx-lm"
+            ) from exc
 
         # New-style sampler factory is preferred; fall back to the old
         # `temp=` kwarg if we're on a pre-0.19 mlx-lm.
