@@ -12257,12 +12257,34 @@ async def api_pkb_review():
     """The review queue — raw candidates awaiting a human decision, plus the
     Compiled-KB state. This is the gate DaC's lifecycle calls for: agents
     propose (by creating raw content); the human approves what agents may
-    experiment/develop against."""
+    experiment/develop against.
+
+    **Scoped to the mounted World.** The PKB root is shared by every World
+    mounted into the same lab, so an unscoped queue showed one World's
+    glossary while another was mounted — a freshly-forged World looked like
+    it had inherited someone else's knowledge. With a World mounted the queue
+    is that World's candidates only; unmounted (the root lab) it is the
+    honest cross-World view, and every row carries the `world` it belongs to
+    so the UI can label it.
+    """
     from arail import compiled_kb as ckb
+    from arail.world_mount import current_mount
+
+    scope = None
+    try:
+        record = current_mount()
+        if record is not None and record.world:
+            scope = f"world-{record.world}"
+    except Exception as e:  # noqa: BLE001 — an unreadable mount must not 500 the queue
+        _log.warning("pkb review: mount lookup failed, showing all worlds: %s", e)
+
     return {
-        "pending": ckb.list_pending(),
+        "pending": ckb.list_pending(world=scope),
         "approved": ckb.list_approved(),
         "gate_enabled": ckb.gate_enabled(),
+        # Which World the queue is showing — None means the cross-World root
+        # lab view. The page renders this so the scope is never a guess.
+        "scope": scope,
     }
 
 
