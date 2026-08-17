@@ -1890,6 +1890,22 @@ class AeroLLMBackend(BaseBackend):
 # ---------------------------------------------------------------------------
 # OllamaNativeBackend  (Ollama native /api/chat — carries options.num_ctx)
 # ---------------------------------------------------------------------------
+def _normalize_keep_alive(value: str) -> "str | int":
+    """Coerce a keep_alive setting into something Ollama actually accepts.
+
+    Ollama reads a JSON *string* as a Go duration and a JSON *number* as
+    seconds. "5m" and 300 are both fine; a bare "-1" is not — Go rejects
+    it with `time: missing unit in duration "-1"` and the request 400s.
+    Operators reasonably write ARAIL_OLLAMA_KEEP_ALIVE=-1 meaning
+    "forever", so turn any bare integer into the number form and leave
+    real durations ("2h", "30s") untouched.
+    """
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return value
+
+
 class OllamaNativeBackend(OpenAICompatBackend):
     """Talks to Ollama's NATIVE /api/chat endpoint (not the OpenAI /v1 shim).
 
@@ -1923,7 +1939,7 @@ class OllamaNativeBackend(OpenAICompatBackend):
         self.backend_name = "ollama:native"
         self._num_ctx = _resolve_ctx_override(self.model_name, default=None)
 
-    def _keep_alive(self) -> "str | None":
+    def _keep_alive(self) -> "str | int | None":
         """Ollama keep_alive for every request.
 
         Without it Ollama evicts the model ~5 min after the last call, so
@@ -1955,11 +1971,19 @@ class OllamaNativeBackend(OpenAICompatBackend):
         raw = os.getenv("ARAIL_OLLAMA_KEEP_ALIVE")
         if raw is not None:
             value = raw.strip()
-            return value or None
+            if not value:
+                return None
+            return _normalize_keep_alive(value)
         pin_enabled = os.getenv("ARAIL_RESIDENT_PIN", "1").strip().lower() \
             not in ("0", "false", "no")
         if pin_enabled and self._is_registry_tier0_model():
-            return "-1"
+            # int, not "-1". Ollama parses a STRING keep_alive as a Go
+            # duration, and "-1" has no unit — it answers 400
+            # {"error":"time: missing unit in duration \"-1\""} and the
+            # whole call fails. A JSON *number* is seconds, and negative
+            # means "keep loaded indefinitely", which is what pinning
+            # means here.
+            return -1
         return "2h"
 
     def _is_registry_tier0_model(self) -> bool:

@@ -366,6 +366,31 @@ _HYPOTHESIS_LABEL_RE = re.compile(
 )
 
 
+# Chat models wrap a list in conversational scaffolding: an opening
+# "Certainly! Here are five testable hypotheses:" and a closing "These
+# hypotheses are specific and measurable." Neither is a hypothesis, and
+# an un-filtered preamble consumes a real experiment slot — the run that
+# exposed this spent one of five slots "testing" the sentence
+# "Certainly! Here are five testable hypotheses...".
+_PREAMBLE_RE = re.compile(
+    r"^(certainly|sure|of course|absolutely|here (are|is)|below (are|is)|"
+    r"the following|these (are|hypotheses)|i (have|will|can)|"
+    r"as (an|a) )\b",
+    re.IGNORECASE,
+)
+
+
+def _looks_like_scaffolding(s: str) -> bool:
+    """True for the model's framing sentences around the actual list."""
+    if _PREAMBLE_RE.match(s):
+        return True
+    # A line that only introduces what follows ends in a colon and makes
+    # no claim of its own.
+    if s.endswith(":") and len(s.split()) <= 14:
+        return True
+    return False
+
+
 def _normalize_hypothesis_line(raw: str) -> str | None:
     s = raw.strip().lstrip("0123456789.-) ").strip()
     if not s:
@@ -374,7 +399,11 @@ def _normalize_hypothesis_line(raw: str) -> str | None:
         return None
     s = _HYPOTHESIS_LABEL_RE.sub("", s)
     s = re.sub(r"\*+|_+", "", s).strip()
-    return s if len(s) > 10 else None
+    if len(s) <= 10:
+        return None
+    if _looks_like_scaffolding(s):
+        return None
+    return s
 
 
 class ResearcherAgent:
