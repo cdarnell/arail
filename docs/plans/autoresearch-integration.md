@@ -1,11 +1,19 @@
 # Autoresearch integration — what it actually does, and whether it holds up
 
-> Status: **audit + decision request**, 2026-08-16.
+> Status: **audit; H0–H4 fixed, H5 + four decisions open.** Opened
+> 2026-08-16, last updated 2026-08-17.
 > Written to answer three operator questions: does the commit-on-win /
 > revert-on-loss loop work for someone over the long term; is this all
 > private git workspaces; and how do we have DDaC without our own git
 > layer. Every claim below is anchored to a file and line in this repo
-> (or in `qukaizen-dac`) as read on 2026-08-16.
+> (or in `qukaizen-dac`).
+>
+> The headline finding is not any of the five hazards this audit set out
+> to catalogue. It is **H0**: the loop could not complete a single pass,
+> because it ran a plain `git add` on two whitelisted paths that
+> `.gitignore` excludes. Every git seam in the suite was stubbed, so no
+> test ever ran the real command. Auditing the pile turned up a floor
+> that wasn't there.
 
 ---
 
@@ -124,16 +132,54 @@ commits and will still hit the refusal; no migration is provided, since
 the audit found zero `autoresearch/*` branches and no bench files, i.e.
 the loop has never actually been run here.
 
-**H3 — branches accumulate forever.** Nothing ever prunes
-`autoresearch/*`; cleanup is a manual `git branch -D` that only exists
-in a sprint doc. A loop run nightly for a month leaves hundreds of refs,
-each a full working-tree state, and the branch browser enumerates all of
-them.
+**H3 — branches accumulate forever.** ~~Nothing ever prunes
+`autoresearch/*`.~~ **FIXED 2026-08-17** — `./arailctl autoresearch
+prune`, dry-run by default. Every gate is a *keep* gate, so a new failure
+mode defaults to keeping: wins, the branch you're on, anything classified
+`unknown`/`running`, the newest N (default 20), anything younger than the
+age gate (default 14d), and anything outside the namespace all survive.
+The plan is re-validated at the moment of deletion, so a stale or
+hand-edited plan cannot delete a protected branch. A receipt carrying the
+full SHA and a ready-to-paste `git branch <name> <sha>` is appended
+*before* each delete — the ref goes, the objects stay.
 
-**H4 — bench files grow without bound and are committed.**
-`lab/data/{aerollm,mlx}-bench.jsonl` are append-only (`bench.py:250-259`)
-*and* inside the commit whitelist, so every run adds a committed line.
-There is no rotation.
+**H4 — bench files grow without bound and are committed.** ~~No
+rotation.~~ **FIXED 2026-08-17** — `./arailctl autoresearch rotate`,
+also dry-run by default: the newest N records (default 5000) stay in
+place, older ones are *appended* to a sibling archive, and the live file
+is replaced atomically so a crash cannot truncate it. Nothing is
+discarded.
+
+Rotation is deliberately **not** automatic inside the loop: auto-rotating
+would silently rewrite a file that sits inside the commit whitelist,
+producing diffs mid-pass that the user never asked for. State the cost of
+that choice plainly — a lab that runs the loop nightly and never runs the
+CLI still grows without bound. Wiring rotation into the pass, or into
+`arailctl update`, is a live option that needs a decision about who owns
+that write, not more code.
+
+**H0 — the loop could not complete a single pass.** Found 2026-08-17
+while building the H4 rotation, and it reframes everything above:
+`lab/data/` is gitignored wholesale (`.gitignore:42`), and two of the
+four whitelisted paths live under it. `commit_experiment` ran a plain
+`git add` on them; git exits 1 on an ignored path and stages nothing, and
+`_run` uses `check=True`, so this raised `CalledProcessError` — from the
+*baseline* commit, the first commit of every pass, whose caller catches
+only `GitSafetyError`. The exception propagated to the outer handler and
+the pass ended in `error` before reaching a single variant.
+
+Verified empirically in a scratch repo (`git add` on an ignored path:
+exit 1, nothing staged; with `-f`: exit 0, staged), not inferred from
+reading. **FIXED** by force-adding, which is safe here precisely because
+`-f` can only ever reach `ALLOWED_WRITABLE_FILES` — the membership check
+runs first, so forcing cannot smuggle an unlisted path into a commit.
+
+This is why the empty-verification rows below matter. The entire suite
+stubbed every git seam — correct for testing loop logic, but it meant no
+test ever ran the real `git add`, and the loop's headline behavior was
+broken in a way no one would notice until they ran it. There is now a
+`tests/test_git_ops_real_repo.py` that drives real git, and it fails with
+the original `CalledProcessError` if the `-f` is removed.
 
 **H5 — clean-tree gate vs. a lab someone actually edits.** ARAIL is a
 blueprint people fork and modify. `assert_clean_tree()` means any
@@ -237,9 +283,12 @@ shape of the fix:
    --ff-only` has nothing to trip over. Still open as a *nicety*:
    whether `arailctl update` should detect and explain pre-existing
    local commits rather than surfacing a raw git error.
-3. **Retention (H3/H4).** Keep every branch forever (today), prune
-   losers after N days, or keep last N wins? Same question for
-   bench-file rotation.
+3. ~~**Retention (H3/H4).**~~ **DECIDED 2026-08-17 — prune old losers
+   and superseded baselines, keep every win forever.** Shipped as
+   `./arailctl autoresearch prune|rotate`, dry-run by default, with
+   conservative defaults (keep newest 20, min age 14d, 5000 bench lines)
+   that are all overridable per invocation. Still open: whether rotation
+   should become automatic, and who owns that write.
 4. **Researcher ledger.** `sprints/2026-05-11-experiment-branches/SPRINT.md:30`
    deferred "wire the Researcher loop to git" to a follow-up sprint that
    was never created. Is PKB-only the *final* answer for the Researcher

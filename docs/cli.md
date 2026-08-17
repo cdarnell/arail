@@ -749,6 +749,47 @@ Unchanged.
 Measure local model TPS for autoresearch routing. Defaults to `--all`
 when no args are given. Unchanged.
 
+### `autoresearch <op>`
+
+Retention for what the tuning loop leaves behind. The loop creates a
+baseline branch plus one branch per variant on every pass and appends to
+a bench log, and it prunes nothing — run it nightly for a month and you
+have hundreds of refs and an unbounded JSONL. These two ops bound that.
+
+**Both ops are dry-run by default.** With no `--apply` they print the
+plan and change nothing.
+
+| Op | What it does |
+|----|--------------|
+| `prune` | Delete old losing/superseded `autoresearch/*` branches |
+| `rotate` | Move the oldest bench records into a sibling archive file |
+
+| Flag | Effect |
+|---|---|
+| `--apply` | Actually make the change (mutually exclusive with `--dry-run`) |
+| `--dry-run` | Explicit form of the default |
+| `--json` | Emit the plan (and result) as JSON |
+| `--keep-recent N` | `prune`: never touch the N newest branches (default 20) |
+| `--older-than-days N` | `prune`: never touch anything younger (default 14) |
+| `--verbose` | `prune`: also list what was kept, and why |
+| `--max-lines N` | `rotate`: how many newest records stay in place (default 5000) |
+
+`prune` never deletes a **win**, the branch you are currently on, a
+branch it cannot classify (`unknown`/`running`), the newest N, anything
+younger than the age gate, or any ref outside `autoresearch/`. Every gate
+is a *keep* gate, so a new failure mode defaults to keeping. Before each
+deletion it appends a receipt to `lab/data/autoresearch-pruned.jsonl`
+carrying the branch's full SHA and a ready-to-paste `git branch <name>
+<sha>` restore line — only the ref is removed, never the objects.
+
+`rotate` discards nothing: the archive is appended to, and the live file
+is replaced atomically so a crash cannot truncate it.
+
+Exit: `0` planned, applied, or nothing to do · `2` usage error (bad flag,
+invalid policy, `--apply` with `--dry-run`) · `3` applied but one or more
+branches failed to delete — the pile is still there, so this is degraded,
+not success.
+
 ### `kb <op>`
 
 QuKaiZen Karpathy LLM Wiki ops (`status`\|`compile`\|`lint`\|`validate`\|

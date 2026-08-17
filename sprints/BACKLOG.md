@@ -1362,18 +1362,33 @@ machine — `git branch --list 'autoresearch/*'` returns 0 and no bench
   H1 fix.** Remaining nicety: `./arailctl update` could detect and
   explain pre-existing local commits instead of surfacing a raw
   `git pull --ff-only` refusal.
-- **H3 — `autoresearch/*` branches accumulate forever.** No pruning
-  anywhere; cleanup is a manual `git branch -D` mentioned only in a
-  sprint doc. The branch browser enumerates all of them.
-- **H4 — committed bench files grow without bound.**
-  `lab/data/{aerollm,mlx}-bench.jsonl` are append-only (`bench.py:250-259`)
-  *and* whitelisted for commit. No rotation.
+- ~~**H3 — `autoresearch/*` branches accumulate forever.**~~ **FIXED
+  2026-08-17** — `./arailctl autoresearch prune`, dry-run by default,
+  keep-gated (wins/current/unclassifiable/newest-N/young all survive),
+  re-validated at delete time, receipt-with-SHA written before each
+  deletion.
+- ~~**H4 — committed bench files grow without bound.**~~ **FIXED
+  2026-08-17** — `./arailctl autoresearch rotate`, dry-run by default,
+  archive-append + atomic replace, nothing discarded. Deliberately NOT
+  automatic inside the loop; see the plan doc for why, and for the cost.
 - **H5 — clean-tree gate vs. a blueprint people fork.**
   `assert_clean_tree()` blocks the loop on any in-progress user edit.
 
 Plus a packaging note: `git_ops._repo_root()` walks four parents from
 `__file__`, which is correct for a checkout and for `pip install -e`, but
 lands outside any git repo under a non-editable install.
+
+**H0, found 2026-08-17 while building the H4 fix and more serious than
+any of the above: the loop could not complete a single pass.** Two of the
+four whitelisted paths live under `lab/data/`, which `.gitignore:42`
+excludes wholesale; `commit_experiment` ran a plain `git add` on them,
+which exits 1 and stages nothing, and `_run` uses `check=True`. That
+raised `CalledProcessError` from the baseline commit — the first commit
+of every pass, whose caller catches only `GitSafetyError`. Fixed by
+force-adding (safe because `-f` can only reach `ALLOWED_WRITABLE_FILES`;
+the membership check runs first). New `tests/test_git_ops_real_repo.py`
+drives real git and reproduces the original error if the `-f` is
+removed.
 
 **What's left.** H1/H2 were decided and fixed on 2026-08-16 (operator
 call: the loop writes only inside `autoresearch/`). H3, H4, H5 and the
@@ -1386,10 +1401,11 @@ never-created follow-up from
 still unfiled elsewhere), and whether "no sharing story" is the intended
 end state for a local-first blueprint.
 
-**Retention (H3/H4) is the natural next one to scope** — it is the only
-remaining hazard that gets monotonically worse with use, and now that
-the baseline also gets a branch, the loop creates one *more* ref per
-pass than it used to.
+**Now the highest-value remaining item is not on this list: nobody has
+triaged the 60 pre-existing full-suite failures.** H0 (the loop could not
+commit at all — see the plan doc) survived because every git seam in the
+suite was stubbed and nobody was watching the red. A suite with 60 known
+failures cannot function as a tripwire for the next change.
 
 **Also worth knowing.** The doc drift this audit found — README calling
 the Researcher a code-writing committer, `agent-loop.md` saying `git
