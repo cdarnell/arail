@@ -1401,11 +1401,13 @@ never-created follow-up from
 still unfiled elsewhere), and whether "no sharing story" is the intended
 end state for a local-first blueprint.
 
-**Now the highest-value remaining item is not on this list: nobody has
-triaged the 60 pre-existing full-suite failures.** H0 (the loop could not
-commit at all — see the plan doc) survived because every git seam in the
-suite was stubbed and nobody was watching the red. A suite with 60 known
-failures cannot function as a tripwire for the next change.
+**The highest-value remaining item is not on this list, and now has its
+own record: `docs/plans/test-suite-triage.md`.** H0 (the loop could not
+commit at all) survived because every git seam was stubbed and nobody was
+watching the red. Triage found 33 of 54 failures are cross-test
+pollution — they pass standalone — and that no CI job runs the full
+suite, which is the actual defect. The polluter is not yet identified;
+the triage records the reproduction and what is ruled out.
 
 **Also worth knowing.** The doc drift this audit found — README calling
 the Researcher a code-writing committer, `agent-loop.md` saying `git

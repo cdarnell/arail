@@ -328,9 +328,15 @@ direct isolation rather than inference: reverting only
 re-running the same 33 affected files yields a **byte-identical failure
 set** (39/460 in that subset). Independently, none of the 33 failing
 files reference `autoresearch` or `arail.experiments` at all. Treat
-those 60 as pre-existing and out of scope for this work — but note that
-nobody has triaged them, and a suite with 60 known-red tests is a poor
-tripwire for the next change. Worth its own pass.
+those as pre-existing and out of scope for this work.
+
+**They have since been triaged** — see
+[the test-suite triage](test-suite-triage.md). The short version: 33 of
+54 pass when their file runs alone, so most of that red is cross-test
+pollution rather than broken product, and the failures that *look* most
+like an API regression (`KeyError: 'optional_backends'`, "Legacy branch
+dropped keys") are exactly the misleading ones. Nothing runs the full
+suite in CI, which is how it got here.
 
 ---
 
