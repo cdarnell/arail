@@ -189,10 +189,10 @@ _METRICS_LOCK = _threading.Lock()
 # Two tiers: minimalist (everyday) and maximus (full bench). Upgrade with
 # ./arailctl upgrade maximus.
 _TIER_SURFACES: dict[str, set[str]] = {
-    "minimalist": {"dashboard", "chat", "research", "dac", "agents", "docs"},
+    "minimalist": {"dashboard", "chat", "research", "dac", "agents", "docs", "study"},
     "maximus": {"dashboard", "chat", "research", "dac", "agents",
                 "admin", "docs", "notebooks", "terminal", "tuning", "plugins",
-                "build"},
+                "build", "study"},
 }
 
 # v1.0.0 tier rename + the LAB_TIER lookup now live in arail.tier, the single
@@ -722,6 +722,9 @@ app.include_router(build_router)
 
 from arail.portal.chat_sessions_api import chat_sessions_router  # noqa: E402
 app.include_router(chat_sessions_router)
+
+from arail.portal.study_routes import router as study_router  # noqa: E402
+app.include_router(study_router)
 
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")
@@ -2589,6 +2592,22 @@ async def worlds_page(request: Request):
     user studies. Goals come second, set within the mounted World.
     """
     return templates.TemplateResponse(request, "worlds.html", {
+        **_identity_ctx(),
+    })
+
+
+@app.get("/study", response_class=HTMLResponse)
+async def study_page(request: Request):
+    """The study bench — the tutor team's quiz surface.
+
+    Every-tier (like /worlds and /dac): a lab shared with a student is one of
+    the reasons this project exists, so the bench is not a maximus perk.
+
+    The page is a shell. The roster, the cards, and the sourced explanations
+    all arrive from /api/study/* (see portal/study_routes.py) — which reads
+    hand-authored decks and sealed World bundles and calls no model.
+    """
+    return templates.TemplateResponse(request, "study.html", {
         **_identity_ctx(),
     })
 
