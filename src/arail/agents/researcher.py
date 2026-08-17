@@ -618,7 +618,9 @@ def measured_facts_block(experiments: list[dict]) -> str:
         elif f["provenance"] == "cannot_run":
             lines.append(f"- could not run: {f.get('cannot_run_reason') or 'no reason recorded'}")
         else:
-            lines.append("- not measurable on this machine")
+            reason = f.get("cannot_run_reason")
+            lines.append(f"- **not tested** — {reason}" if reason
+                         else "- not measurable on this machine")
         mismatch = _hypothesis_subject_mismatch(f)
         if mismatch:
             lines.append(f"- ⚠️ **{mismatch}**")
@@ -1543,8 +1545,15 @@ class ResearcherAgent:
         measurement archetype the engine will actually run (or 'unmeasured')."""
         from arail.research import mini_experiments as mx
         redirect = _active_redirect()
-        archetype = mx.select_archetype(hypothesis) or "unmeasured"
+        archetype, unmeasurable_reason = mx.classify_hypothesis(hypothesis)
+        archetype = archetype or "unmeasured"
         methodology = mx.ARCHETYPE_METHODOLOGY.get(archetype, "")
+        if unmeasurable_reason:
+            # Refuse rather than substitute. Mapping "increase prefetch
+            # depth" onto a plain throughput run measured something real
+            # and then reported it as evidence for a change that never
+            # happened.
+            methodology = f"Not run: {unmeasurable_reason}"
         metrics = mx.ARCHETYPE_METRICS.get(archetype, [])
         return self.tracker.create(
             hypothesis=hypothesis,
@@ -1552,6 +1561,7 @@ class ResearcherAgent:
             variables={
                 "domain": domain,
                 "archetype": archetype,
+                "unmeasurable_reason": unmeasurable_reason or "",
                 "redirect_preset": str((redirect or {}).get("preset") or ""),
             },
             duration_days=None,
