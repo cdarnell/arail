@@ -148,6 +148,32 @@
   .why p{margin:0 0 .5rem;}
   .why p:last-child{margin:0;}
 
+  /* ── Closed-choice cards ──────────────────────────────────────────────
+     Deliberately big targets: these are meant to be answered in a couple of
+     seconds, on a phone, twenty in a row. */
+  .choices{display:flex;gap:.7rem;flex-wrap:wrap;margin-top:.4rem;}
+  .choice{
+    flex:1 1 11rem;padding:1rem 1.1rem;cursor:pointer;
+    font-family:var(--sub-display);font-size:1.05rem;font-weight:600;
+    color:var(--text);background:var(--surface2,var(--surface));
+    border:1.5px solid var(--border-strong);border-radius:var(--radius-l);
+    transition:border-color .14s ease,background .14s ease,transform .14s ease;
+  }
+  .choice:hover{
+    border-color:var(--sub-accent);transform:translateY(-2px);
+    background:color-mix(in srgb,var(--sub-accent) 10%,var(--surface));
+  }
+  .choice:focus-visible{outline:2px solid var(--sub-accent);outline-offset:2px;}
+  @media (prefers-reduced-motion:reduce){ .choice{transition:none;} }
+
+  .verdict{
+    display:flex;align-items:baseline;gap:.5rem;margin:0 0 .9rem;
+    font-size:1.05rem;font-weight:600;
+  }
+  .verdict .v-mark{font-size:1.25rem;line-height:1;}
+  .verdict.is-right{color:var(--positive);}
+  .verdict.is-wrong{color:var(--warn);}
+
   .actions{display:flex;gap:.6rem;flex-wrap:wrap;margin-top:1.3rem;}
   .btn-sub{
     background:var(--sub-accent);border-color:var(--sub-accent);
@@ -186,7 +212,7 @@
   // All content reaches the DOM as text. The deck and the World are authored,
   // but they are still rendered via textContent rather than innerHTML — same
   // stance as the World term editor.
-  var team = [], current = null, card = null, revealed = false;
+  var team = [], current = null, card = null, revealed = false, picked = null;
 
   var page  = document.getElementById('study-page');
   var row   = document.getElementById('team-row');
@@ -285,6 +311,22 @@
     if(card.skill) frag.appendChild(el('span', 'skill-tag', card.skill));
     frag.appendChild(el('p', 'prompt', card.prompt));
 
+    // Closed-choice cards: she picks, and the pick is graded immediately.
+    // Auto-grading is honest here and only here — the answer space is finite
+    // and authored, so "Divide" is checkable. A free-text answer about a
+    // theme is not, which is why every other card stays self-graded.
+    if(card.choices && card.choices.length && !revealed){
+      var pick = el('div', 'choices');
+      card.choices.forEach(function(choice){
+        var b = el('button', 'choice', choice);
+        b.type = 'button';
+        b.addEventListener('click', function(){ choose(choice); });
+        pick.appendChild(b);
+      });
+      frag.appendChild(pick);
+      paint(frag); return;
+    }
+
     if(!revealed){
       var c = coachOf(current);
       if(c && c.greeting) frag.appendChild(el('p', 'empty', c.greeting));
@@ -301,6 +343,19 @@
     }
 
     var rev = el('div', 'reveal');
+
+    // On a graded pick, lead with the verdict rather than the answer — she
+    // already committed to a choice, so "right/wrong" is the information she
+    // is waiting for.
+    if(picked !== null){
+      var right = picked === card.correct_choice;
+      var v = el('p', 'verdict ' + (right ? 'is-right' : 'is-wrong'));
+      v.appendChild(el('span', 'v-mark', right ? '✓' : '✗'));
+      v.appendChild(document.createTextNode(
+        right ? 'Yes — ' + picked : 'You picked ' + picked + ' · it\'s ' + card.correct_choice));
+      rev.appendChild(v);
+    }
+
     var ans = el('p', 'answer');
     ans.appendChild(el('b', null, 'Answer: '));
     ans.appendChild(document.createTextNode(card.answer || ''));
@@ -323,6 +378,15 @@
     }
 
     var acts2 = el('div', 'actions');
+    if(picked !== null){
+      var next = el('button', 'btn btn-sub', 'Next question →');
+      next.type = 'button';
+      next.addEventListener('click', loadCard);
+      acts2.appendChild(next);
+      rev.appendChild(acts2);
+      frag.appendChild(rev);
+      paint(frag); return;
+    }
     var got = el('button', 'btn btn-sub', '✓ I got it');
     got.type = 'button';
     got.addEventListener('click', function(){ grade(true); });
@@ -335,6 +399,16 @@
     paint(frag);
   }
 
+  // A closed-choice pick: grade it against the authored answer, then reveal.
+  // The Leitner box moves on the pick itself, so these cards need no second
+  // self-assessment step — that is what makes them five-second cards.
+  function choose(choice){
+    picked = choice;
+    revealed = true;
+    renderCard();
+    grade(choice === card.correct_choice, {advance: false});
+  }
+
   function nextSubject(){
     if(team.length < 2) return;
     var i = team.findIndex(function(c){ return c.agent === current; });
@@ -343,7 +417,7 @@
   }
 
   async function loadCard(){
-    revealed = false; card = null;
+    revealed = false; picked = null; card = null;
     if(!current) return;
     paint(el('p', 'empty', 'Picking a question…'));
     try{
@@ -365,8 +439,9 @@
     if(c){ c.progress = progress; renderTeam(); }
   }
 
-  async function grade(correct){
+  async function grade(correct, opts){
     if(!card || !current) return;
+    var advance = !opts || opts.advance !== false;
     try{
       var r = await fetch('/api/study/grade', {
         method: 'POST',
@@ -375,7 +450,7 @@
       });
       if(r.ok){ var d = await r.json(); applyProgress(current, d.progress); }
     }catch(e){ /* grading is a nicety — never block the next question on it */ }
-    loadCard();
+    if(advance) loadCard();
   }
 
   async function boot(){

@@ -68,6 +68,8 @@ def _seed_coach(pkb_root: Path, agent_id: str = "fixture_coach",
         "        c = dict(CARDS[0])\n"
         "        c['card_id'] = c.pop('id')\n"
         "        c['explanation'] = None\n"
+        "        c.setdefault('choices', [])\n"
+        "        c.setdefault('correct_choice', '')\n"
         "        return c\n"
         "    def record(self, card_id, correct):\n"
         "        self._state['boxes'][card_id] = {'box': 4 if correct else 1}\n"
@@ -203,6 +205,35 @@ def test_next_and_grade_round_trip(monkeypatch, tmp_path, lab):
     assert body["ok"] is True
     # box 4 counts as mastered — the progress the UI draws its bar from.
     assert body["progress"]["mastered"] == 1
+
+
+def test_closed_choice_cards_pass_their_choices_through(monkeypatch, tmp_path, lab):
+    """Predict cards are graded by the page against `correct_choice`, so both
+    fields have to survive the trip. Auto-grading is only defensible because
+    the answer space is finite and authored — if `choices` silently dropped,
+    the card would degrade into an ungraded show-the-answer prompt."""
+    _seed_coach(lab, cards=[{
+        "id": "p1", "skill": "predict", "prompt": "6y = 12 — multiply or divide?",
+        "answer": "Divide.", "steps": [],
+        "choices": ["Divide", "Multiply"], "correct_choice": "Divide",
+    }])
+    client = _client(monkeypatch, tmp_path)
+    card = client.get("/api/study/next", params={"agent": "fixture_coach"}).json()["card"]
+
+    assert card["choices"] == ["Divide", "Multiply"]
+    assert card["correct_choice"] == "Divide"
+    assert card["correct_choice"] in card["choices"]
+
+
+def test_ordinary_cards_carry_no_choices(monkeypatch, tmp_path, lab):
+    """The absence is load-bearing: a free-text card must fall back to
+    self-grading, because auto-grading an answer about a novel's theme would
+    teach the wrong lesson."""
+    _seed_coach(lab)
+    client = _client(monkeypatch, tmp_path)
+    card = client.get("/api/study/next", params={"agent": "fixture_coach"}).json()["card"]
+    assert card["choices"] == []
+    assert not card["correct_choice"]
 
 
 def test_empty_team_is_a_200_not_an_error(monkeypatch, tmp_path, lab):
