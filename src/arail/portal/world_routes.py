@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -497,6 +498,137 @@ async def api_world_delete(slug: str, request: Request):
     shutil.rmtree(catalog)
     activity_log.emit("forge", f"Deleted world '{slug}' from the catalog.", "info")
     return {"ok": True}
+
+
+# ═══════════════════════════ PUSH TO TEAM ══════════════════════════════════
+# The mounted world's catalog directory (WORLDS_DIR/<slug>/) already IS a
+# valid dac.world-bundle/v1 bundle — manifest.json + the six sealed siblings
+# are written at forge-confirm time and re-sealed on every terms edit. No new
+# packaging step exists here on purpose: this route re-verifies the seal
+# (defense in depth before anything leaves ARAIL) and hands the same
+# directory straight to team-adopt, exactly the way a human would from a
+# terminal. If verify_seal ever fails here, that's a real bug elsewhere in
+# the mount/reseal path, not something this route should paper over.
+
+TEAM_REPO_ENV = "TEAM_REPO_PATH"
+_DEFAULT_TEAM_REPO = os.path.expanduser("~/ProJects/qukaizen-team")
+
+
+def _team_repo_dir() -> Path:
+    return Path(os.getenv(TEAM_REPO_ENV, _DEFAULT_TEAM_REPO)).expanduser()
+
+
+@router.get("/api/admin/team/push-status")
+async def api_team_push_status():
+    """What the 'Push to TEAM' panel needs: the currently mounted world (if
+    any), whether team-adopt is reachable, and which TEAM worlds exist to
+    push into."""
+    record = wm.current_mount()
+    mounted = record.world if record else None
+
+    team_repo = _team_repo_dir()
+    team_adopt = team_repo / "bin" / "team-adopt"
+    worlds_dir = team_repo / "worlds"
+    team_worlds: list[str] = []
+    if worlds_dir.is_dir():
+        team_worlds = sorted(
+            p.name for p in worlds_dir.iterdir()
+            if p.is_dir() and (p / "world.json").exists()
+        )
+
+    return {
+        "mounted_world": mounted,
+        "team_repo": str(team_repo),
+        "team_adopt_found": team_adopt.exists(),
+        "team_worlds": team_worlds,
+    }
+
+
+@router.post("/api/admin/team/push")
+async def api_team_push(request: Request):
+    """Push the currently mounted ARAIL world into a TEAM world as a
+    reference shelf. Same shape as run-scan / the scheduler's run-now:
+    subprocess, captured output, a receipt-style JSON back to the caller.
+
+    Body: {"team_world": "<slug under qukaizen-team/worlds/>"} — optional;
+    omitted means a dry run (team-adopt prints its report, writes nothing).
+    """
+    if (rej := _csrf_reject(request)) is not None:
+        return rej
+
+    record = wm.current_mount()
+    if record is None:
+        return _err(400, {"error": "no_world_mounted",
+                           "message": "Mount a world before pushing it to TEAM."})
+
+    catalog = _mounted_catalog_dir()
+    if catalog is None:
+        return _err(404, {"error": "catalog_missing",
+                           "message": f"Mount record points at '{record.world}' but its "
+                                      "catalog directory has no manifest.json."})
+
+    # Re-verify the seal right before this bundle leaves ARAIL. Reads the
+    # same six files team-adopt is about to read.
+    try:
+        bundle = wm.load_bundle(catalog)
+    except wm.BundleError as e:
+        return _err(422, {"error": "bundle_unreadable", "message": e.user_message})
+
+    seal = wm.verify_seal(bundle)
+    if not seal.ok:
+        activity_log.emit("team-push",
+            f"Refused to push '{record.world}' — seal check failed: {seal.user_message}",
+            "error")
+        return _err(422, {"error": "seal_mismatch", "message": seal.user_message})
+
+    body: dict = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+    team_world = str(body.get("team_world") or "").strip()
+
+    team_repo = _team_repo_dir()
+    team_adopt = team_repo / "bin" / "team-adopt"
+    if not team_adopt.exists():
+        return _err(404, {"error": "team_adopt_not_found",
+                           "message": f"No team-adopt at {team_adopt}. Set {TEAM_REPO_ENV} "
+                                      "if qukaizen-team lives somewhere else on this machine."})
+
+    cmd = ["python3", str(team_adopt), str(catalog)]
+    into_dir = None
+    if team_world:
+        if not wm._SLUG_RE.match(team_world):
+            return _err(400, {"error": "bad_team_world"})
+        into_dir = team_repo / "worlds" / team_world
+        if not (into_dir / "world.json").exists():
+            return _err(404, {"error": "team_world_not_found",
+                               "message": f"No world.json at {into_dir}."})
+        cmd += ["--into", str(into_dir)]
+
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except subprocess.TimeoutExpired:
+        return _err(504, {"error": "timeout", "message": "team-adopt did not finish in 30s."})
+    except OSError as e:
+        return _err(500, {"error": "launch_failed", "message": str(e)})
+
+    ok = proc.returncode == 0
+    activity_log.emit(
+        "team-push",
+        (f"Pushed '{record.world}' to TEAM"
+         + (f" world '{team_world}'" if team_world else " (dry run)")
+         + (" — ok" if ok else f" — exit {proc.returncode}")),
+        "info" if ok else "error",
+    )
+    return {
+        "ok": ok,
+        "exit_code": proc.returncode,
+        "dry_run": not bool(team_world),
+        "world": record.world,
+        "team_world": team_world or None,
+        "output": (proc.stdout + proc.stderr)[-6000:],
+    }
 
 
 # ═══════════════════════════ TERMS EDITOR ═════════════════════════════════
