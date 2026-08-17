@@ -1332,3 +1332,67 @@ platform assumption `T3/daemon-a` had — a scenario is legitimate to gate
 on a platform only when the PRODUCT is gated at the same boundary and
 says so (this sprint's own standing rule, ARCHITECTURE.md §10); anything
 gated merely to make CI green needs fixing, not skipping.
+
+---
+
+## Autoresearch durability — the Tuning loop's git ledger over the long term
+
+**Filed by:** `docs/plans/autoresearch-integration.md` (2026-08-16 audit,
+branch `qukaizen/autoresearch-integration-plan-e1a5c3`), prompted by the
+operator question "is this really working for someone long term?"
+
+**The gap.** The Tuning loop (`src/arail/experiments/autoresearch.py` +
+`git_ops.py`) writes a branch-per-experiment ledger into the ARAIL
+checkout itself. Every safety rail on the *individual* operation is in
+place — 4-file whitelist, clean-tree gate, env flag, explicit staging,
+no push, no force, no reset. What is missing is any notion of the ledger
+as something that **accumulates**. Five hazards, all structural rather
+than observed (the loop has never been run end-to-end on the operator's
+machine — `git branch --list 'autoresearch/*'` returns 0 and no bench
+`.jsonl` exists):
+
+- ~~**H1 — baseline commit lands on the user's current branch.**~~
+  **FIXED 2026-08-16.** Baseline now commits on its own
+  `autoresearch/baseline-<ts>` branch; variants branch from that; the
+  loop restores the user's original branch in a `finally`. Guarded by a
+  `restore_to` sentinel so the restore (which runs `git checkout -- .`)
+  can never fire on the dirty-tree abort and eat the user's work. Four
+  regression tests in `tests/test_experiments.py`.
+- ~~**H2 — `./arailctl update` breaks after H1.**~~ **Resolved by the
+  H1 fix.** Remaining nicety: `./arailctl update` could detect and
+  explain pre-existing local commits instead of surfacing a raw
+  `git pull --ff-only` refusal.
+- **H3 — `autoresearch/*` branches accumulate forever.** No pruning
+  anywhere; cleanup is a manual `git branch -D` mentioned only in a
+  sprint doc. The branch browser enumerates all of them.
+- **H4 — committed bench files grow without bound.**
+  `lab/data/{aerollm,mlx}-bench.jsonl` are append-only (`bench.py:250-259`)
+  *and* whitelisted for commit. No rotation.
+- **H5 — clean-tree gate vs. a blueprint people fork.**
+  `assert_clean_tree()` blocks the loop on any in-progress user edit.
+
+Plus a packaging note: `git_ops._repo_root()` walks four parents from
+`__file__`, which is correct for a checkout and for `pip install -e`, but
+lands outside any git repo under a non-editable install.
+
+**What's left.** H1/H2 were decided and fixed on 2026-08-16 (operator
+call: the loop writes only inside `autoresearch/`). H3, H4, H5 and the
+packaging note remain, and each is still gated on an operator decision
+that the audit could not make — §4 of the plan doc: branch/bench
+retention policy, whether the Researcher ever gets a git ledger (the
+never-created follow-up from
+`sprints/2026-05-11-experiment-branches/SPRINT.md:30`), whether
+`lab/data/experiments/` moves under the PKB root (clean-experience Gap 8,
+still unfiled elsewhere), and whether "no sharing story" is the intended
+end state for a local-first blueprint.
+
+**Retention (H3/H4) is the natural next one to scope** — it is the only
+remaining hazard that gets monotonically worse with use, and now that
+the baseline also gets a branch, the loop creates one *more* ref per
+pass than it used to.
+
+**Also worth knowing.** The doc drift this audit found — README calling
+the Researcher a code-writing committer, `agent-loop.md` saying `git
+reset`, `tuning-loop.md` listing two whitelisted files — was fixed in the
+same branch. The remaining prose risk is that "autoresearch" still names
+two unrelated engines.
