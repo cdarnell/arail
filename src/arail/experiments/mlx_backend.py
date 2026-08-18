@@ -24,6 +24,7 @@ on any platform.
 
 from __future__ import annotations
 
+import os
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -85,14 +86,41 @@ def _build_generate_kwargs(knob_values: Dict[str, Any]) -> Dict[str, Any]:
     return kwargs
 
 
+def resolve_model_path(model_id: str) -> str:
+    """Prefer a local checkout under ARAIL_MODELS_DIR over an HF id.
+
+    The lab is airgapped by default, so an uncached HF id is not a slow
+    path — it is a dead one: mlx_lm raises LocalEntryNotFoundError and
+    the whole tuning pass aborts at baseline. Meanwhile the checkpoint
+    is usually right there on disk; `ARAIL_MODELS_DIR` is the documented
+    place for it (see docs/models-on-disk.md), and on shared machines it
+    points at a pooled directory.
+
+    So: if `<ARAIL_MODELS_DIR>/<basename>` is a real model directory, use
+    it. Otherwise hand back the id untouched and let mlx_lm decide —
+    a hybrid lab with a warm HF cache still works exactly as before.
+    """
+    if not model_id or os.path.isdir(model_id):
+        return model_id
+    try:
+        from arail.config import MODELS_DIR
+    except Exception:
+        return model_id
+    candidate = Path(MODELS_DIR) / model_id.rsplit("/", 1)[-1]
+    if (candidate / "config.json").is_file():
+        return str(candidate)
+    return model_id
+
+
 def _pick_model_id(knob_values: Dict[str, Any], fallback: str) -> str:
-    """Which HF model identity to load. If the agent specified a
+    """Which model to load. If the agent specified a
     model_quant_variant override, honor it; else use the
-    research_model.name from the config."""
+    research_model.name from the config. Either way the result is
+    resolved against the local models dir first."""
     override = knob_values.get("model_quant_variant")
     if isinstance(override, str) and override:
-        return override
-    return fallback
+        return resolve_model_path(override)
+    return resolve_model_path(fallback)
 
 
 # ── Runner ───────────────────────────────────────────────────────────
