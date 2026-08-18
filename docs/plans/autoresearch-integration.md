@@ -316,10 +316,28 @@ Re-runnable, non-destructive. Observed results as of 2026-08-16:
 | Bench files | `ls lab/data/*bench*` | absent — same conclusion |
 | Baseline branch target | read `autoresearch.py:661-697` | confirmed: commit at `:673` precedes `origin_branch = git_state().branch` at `:697` |
 
-The third and fourth rows are the important ones for honesty: **this
-loop has not been exercised end-to-end on the operator's own machine.**
-Every long-term claim in §3 Q1 is derived from reading the code, not
-from a lab that has been running it for months.
+~~The third and fourth rows are the important ones for honesty: this
+loop has not been exercised end-to-end.~~ **It has now — 2026-08-18,
+first real pass ever, on the MLX lane.** What that one run bought:
+
+- **H1 confirmed in production, not just in tests.** The baseline commit
+  landed on `autoresearch/baseline-20260818-065724`; the working branch
+  was untouched; the tree came back clean and checked out where it
+  started.
+- **Two more blockers, both invisible from reading.** The MLX research
+  model was named by HF id and absent from the HF cache, so an airgapped
+  lab — the default — died at baseline while the checkpoint sat in
+  `ARAIL_MODELS_DIR`. And `kv_bits` variants cannot run at all with the
+  default `max_kv_size=4096` (`RotatingKVCache Quantization NYI`), which
+  is three of eight MLX candidates failing every pass behind the message
+  "no measurable tok/s".
+- **A real measurement.** Baseline 62.88 tok/s; `prefill-1024` at
+  +0.3%, correctly recorded as a loss against the 5% threshold.
+
+The pattern is worth stating plainly, because it held four times in a
+row (H0, the keep_alive 400, the model id, the KV knob): **every
+remaining defect in this loop was one that only running it could find.**
+Reading the code found the hazards; running it found the breakage.
 
 **On the full suite.** `pytest tests/ -q` reports **60 failures out of
 5,614** on this branch. None are caused by the H1 fix, established by
