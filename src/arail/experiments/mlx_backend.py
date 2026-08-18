@@ -86,6 +86,31 @@ def _build_generate_kwargs(knob_values: Dict[str, Any]) -> Dict[str, Any]:
     return kwargs
 
 
+def unsupported_combination(knob_values: Dict[str, Any]) -> Optional[str]:
+    """Why this knob combination cannot run on the current mlx_lm, or None.
+
+    Checked BEFORE a variant branch is created, because the alternative
+    is what the first real tuning pass did: run the full bench N times,
+    collect N identical NotImplementedErrors, and report "no measurable
+    tok/s" — a message that says nothing about the actual cause.
+
+    Known limitation: mlx_lm raises `RotatingKVCache Quantization NYI`
+    when KV quantization meets a rotating cache, and `max_kv_size` is
+    what makes the cache rotating. It is set to 4096 by default, so
+    every kv_bits variant in the catalog is dead on arrival — three of
+    the eight MLX candidates, nine wasted model loads per pass.
+    """
+    kv_bits = knob_values.get("kv_bits", "fp16")
+    quantizes_kv = kv_bits not in (None, "", "fp16")
+    max_kv = knob_values.get("max_kv_size")
+    if quantizes_kv and isinstance(max_kv, int) and max_kv > 0:
+        return (f"mlx_lm cannot quantize a rotating KV cache "
+                f"(kv_bits={kv_bits!r} with max_kv_size={max_kv}): "
+                "'RotatingKVCache Quantization NYI'. Unset max_kv_size to "
+                "test KV quantization, or drop the kv_bits knob.")
+    return None
+
+
 def resolve_model_path(model_id: str) -> str:
     """Prefer a local checkout under ARAIL_MODELS_DIR over an HF id.
 

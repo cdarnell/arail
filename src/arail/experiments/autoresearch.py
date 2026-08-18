@@ -459,6 +459,27 @@ def _commit_files(backend: str) -> List[str]:
     return ["config/tuning.yml", "lab/data/aerollm-bench.jsonl"]
 
 
+class _SkipVariant(Exception):
+    """A schema-valid variant the backend cannot actually run."""
+
+
+def _unsupported_combination(cfg, delta: Dict[str, Any],
+                             backend: str) -> Optional[str]:
+    """Backend-specific runnability check on the POST-delta knob set."""
+    if backend != "mlx":
+        return None
+    try:
+        from arail.experiments.mlx_backend import unsupported_combination
+    except Exception:
+        return None
+    knobs = {name: k.current for name, k in cfg.knobs.items()}
+    knobs.update(delta)
+    try:
+        return unsupported_combination(knobs)
+    except Exception:
+        return None
+
+
 def _default_candidates(backend: str) -> List[Candidate]:
     return MLX_CANDIDATES if backend == "mlx" else CANDIDATES
 
@@ -777,6 +798,25 @@ def run_autoresearch(
                             f"({reason})"
                         )
 
+                # Schema-valid is not the same as runnable. Ask the
+                # backend whether this combination is supported before
+                # spending a branch and N model loads on it.
+                unsupported = _unsupported_combination(cfg, delta, backend)
+                if unsupported:
+                    result.outcome = "skipped"
+                    result.error = unsupported
+                    try:
+                        activity_log.emit(
+                            "autoresearch",
+                            f"Skipped {label}: {unsupported}",
+                            "warn",
+                            {"event": "variant-skipped", "label": label,
+                             "backend": backend},
+                        )
+                    except Exception:
+                        pass
+                    raise _SkipVariant(unsupported)
+
                 create_experiment_branch(exp_id, base_branch=variant_base)
                 try:
                     activity_log.emit(
@@ -852,6 +892,10 @@ def run_autoresearch(
                             pass
                         abort_experiment(variant_base)
 
+            except _SkipVariant:
+                # Recorded as "skipped" above; no branch was created and
+                # nothing was written, so there is nothing to abort.
+                pass
             except Exception as exc:
                 result.error = f"{type(exc).__name__}: {exc}"
                 result.outcome = "error"

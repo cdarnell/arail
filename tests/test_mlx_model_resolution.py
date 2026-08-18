@@ -68,3 +68,39 @@ def test_fallback_is_resolved_when_no_override(tmp_path, monkeypatch):
     monkeypatch.setattr("arail.config.MODELS_DIR", str(tmp_path))
     assert mb._pick_model_id(
         {}, fallback="mlx-community/Qwen2.5-7B-Instruct-4bit") == str(local)
+
+
+# ── Runnability, not just schema-validity ───────────────────────────
+#
+# The first real tuning pass ran the kv-8bit variant three times, got
+# three identical NotImplementedErrors from mlx_lm, and reported "no
+# measurable tok/s" — a message that names neither the knob nor the
+# cause. max_kv_size defaults to 4096, which makes the KV cache
+# rotating, and mlx_lm cannot quantize a rotating cache.
+
+def test_kv_quantization_with_a_rotating_cache_is_refused():
+    reason = mb.unsupported_combination(
+        {"kv_bits": "8bit", "max_kv_size": 4096})
+    assert reason and "RotatingKVCache" in reason
+
+
+@pytest.mark.parametrize("bits", ["8bit", "4bit"])
+def test_every_quantized_kv_setting_is_caught(bits):
+    assert mb.unsupported_combination({"kv_bits": bits, "max_kv_size": 4096})
+
+
+def test_kv_quantization_without_a_cache_cap_is_allowed():
+    """Exactly the combination that ran fine standalone at 16.7 tok/s."""
+    assert mb.unsupported_combination({"kv_bits": "8bit"}) is None
+    assert mb.unsupported_combination(
+        {"kv_bits": "8bit", "max_kv_size": 0}) is None
+
+
+def test_fp16_kv_with_a_cache_cap_is_allowed():
+    assert mb.unsupported_combination(
+        {"kv_bits": "fp16", "max_kv_size": 4096}) is None
+
+
+def test_unrelated_knobs_are_allowed():
+    assert mb.unsupported_combination({"prefill_step_size": 1024}) is None
+    assert mb.unsupported_combination({}) is None
