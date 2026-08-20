@@ -3,7 +3,7 @@
       {% include "_nav.html" with context %}
   ...after setting an `active` variable to one of:
       dashboard | dac       | notebooks | research | chat
-      agents    | terminal  | admin
+      agents    | terminal  | admin     | study
   Sub-surfaces reached from their parent page:
       /tuning    — linked from /chat  (speed work for the deep model)
       /plugins   — linked from /admin (one tap away from core lab config)
@@ -63,6 +63,11 @@
   {% if 'docs' in _ts %}
   <a href="/docs"{% if active == 'docs' %} class="active"{% endif %}
      title="Docs — learn the lab.">Docs</a>
+  {% endif %}
+
+  {% if 'study' in _ts %}
+  <a href="/study"{% if active == 'study' %} class="active"{% endif %}
+     title="Study — quiz with your tutor team from authored decks and sourced explanations.">Study</a>
   {% endif %}
 
   {% if 'agents' in _ts %}

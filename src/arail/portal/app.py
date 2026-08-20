@@ -189,10 +189,10 @@ _METRICS_LOCK = _threading.Lock()
 # Two tiers: minimalist (everyday) and maximus (full bench). Upgrade with
 # ./arailctl upgrade maximus.
 _TIER_SURFACES: dict[str, set[str]] = {
-    "minimalist": {"dashboard", "chat", "research", "dac", "agents", "docs"},
+    "minimalist": {"dashboard", "chat", "research", "dac", "agents", "docs", "study"},
     "maximus": {"dashboard", "chat", "research", "dac", "agents",
                 "admin", "docs", "notebooks", "terminal", "tuning", "plugins",
-                "build"},
+                "build", "study"},
 }
 
 # v1.0.0 tier rename + the LAB_TIER lookup now live in arail.tier, the single
@@ -722,6 +722,9 @@ app.include_router(build_router)
 
 from arail.portal.chat_sessions_api import chat_sessions_router  # noqa: E402
 app.include_router(chat_sessions_router)
+
+from arail.portal.study_routes import router as study_router  # noqa: E402
+app.include_router(study_router)
 
 PORTAL_DIR = Path(__file__).parent
 app.mount("/static", StaticFiles(directory=PORTAL_DIR / "static"), name="static")
@@ -2589,6 +2592,22 @@ async def worlds_page(request: Request):
     user studies. Goals come second, set within the mounted World.
     """
     return templates.TemplateResponse(request, "worlds.html", {
+        **_identity_ctx(),
+    })
+
+
+@app.get("/study", response_class=HTMLResponse)
+async def study_page(request: Request):
+    """The study bench — the tutor team's quiz surface.
+
+    Every-tier (like /worlds and /dac): a lab shared with a student is one of
+    the reasons this project exists, so the bench is not a maximus perk.
+
+    The page is a shell. The roster, the cards, and the sourced explanations
+    all arrive from /api/study/* (see portal/study_routes.py) — which reads
+    hand-authored decks and sealed World bundles and calls no model.
+    """
+    return templates.TemplateResponse(request, "study.html", {
         **_identity_ctx(),
     })
 
@@ -12238,12 +12257,34 @@ async def api_pkb_review():
     """The review queue — raw candidates awaiting a human decision, plus the
     Compiled-KB state. This is the gate DaC's lifecycle calls for: agents
     propose (by creating raw content); the human approves what agents may
-    experiment/develop against."""
+    experiment/develop against.
+
+    **Scoped to the mounted World.** The PKB root is shared by every World
+    mounted into the same lab, so an unscoped queue showed one World's
+    glossary while another was mounted — a freshly-forged World looked like
+    it had inherited someone else's knowledge. With a World mounted the queue
+    is that World's candidates only; unmounted (the root lab) it is the
+    honest cross-World view, and every row carries the `world` it belongs to
+    so the UI can label it.
+    """
     from arail import compiled_kb as ckb
+    from arail.world_mount import current_mount
+
+    scope = None
+    try:
+        record = current_mount()
+        if record is not None and record.world:
+            scope = f"world-{record.world}"
+    except Exception as e:  # noqa: BLE001 — an unreadable mount must not 500 the queue
+        _log.warning("pkb review: mount lookup failed, showing all worlds: %s", e)
+
     return {
-        "pending": ckb.list_pending(),
+        "pending": ckb.list_pending(world=scope),
         "approved": ckb.list_approved(),
         "gate_enabled": ckb.gate_enabled(),
+        # Which World the queue is showing — None means the cross-World root
+        # lab view. The page renders this so the scope is never a guess.
+        "scope": scope,
     }
 
 
