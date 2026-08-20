@@ -217,3 +217,52 @@ def test_comparison_prose_is_fine_when_runs_actually_differ():
     assert verify_report_narrative(
         "Compliance reached 1.0 compared to the throughput baseline of "
         "66.327 tok/s.", runs) == []
+
+
+# ── The completion message must reflect the outcome ─────────────────
+
+from arail.agents.researcher import completion_status
+
+
+def _exp_with(provenance):
+    return {"id": "x", "results": {"provenance": provenance}}
+
+
+def test_zero_measurements_is_not_a_success():
+    """A lab with a dead model must not look like a lab doing science."""
+    level, msg, counts = completion_status(
+        [_exp_with("cannot_run"), _exp_with("cannot_run")])
+    assert level == "warn"
+    assert "no measurements" in msg
+    assert counts == {"measured": 0, "experiments": 2}
+
+
+def test_all_unmeasured_is_also_not_a_success():
+    level, msg, _ = completion_status([_exp_with("unmeasured")])
+    assert level == "warn" and "0/1" in msg
+
+
+def test_no_experiments_at_all_is_not_a_success():
+    level, msg, counts = completion_status([])
+    assert level == "warn"
+    assert "without running any experiment" in msg
+    assert counts == {"measured": 0, "experiments": 0}
+
+
+def test_a_measured_run_is_a_success_and_names_the_count():
+    level, msg, counts = completion_status(
+        [_exp_with("measured"), _exp_with("cannot_run"),
+         _exp_with("unmeasured")])
+    assert level == "success"
+    assert "1/3" in msg
+    assert counts == {"measured": 1, "experiments": 3}
+
+
+def test_a_fully_measured_run_reads_cleanly():
+    level, msg, _ = completion_status([_exp_with("measured")] * 4)
+    assert level == "success" and "4/4" in msg
+
+
+def test_a_missing_results_block_counts_as_unmeasured():
+    level, _, counts = completion_status([{"id": "x"}])
+    assert level == "warn" and counts["measured"] == 0

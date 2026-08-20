@@ -593,6 +593,34 @@ def _hypothesis_subject_mismatch(f: dict) -> str | None:
             "that claim")
 
 
+def completion_status(experiments: list[dict]) -> tuple[str, str, dict]:
+    """(level, message, counts) for the end-of-run activity entry.
+
+    "Research complete. Report generated." went out at success level even
+    when every experiment came back cannot_run and the report held no
+    findings — so a lab with a dead Ollama looked exactly like a lab
+    doing science. Observed twice on a real machine: once behind the
+    keep_alive 400, once with the service simply stopped.
+    """
+    total = len(experiments)
+    measured = sum(
+        1 for e in experiments
+        if str(((e.get("results") or {}).get("provenance")) or "") == "measured"
+    )
+    counts = {"measured": measured, "experiments": total}
+    if measured:
+        return ("success",
+                f"Research complete — {measured}/{total} experiment(s) "
+                "measured. Report generated.", counts)
+    if total:
+        return ("warn",
+                f"Research finished with no measurements: 0/{total} "
+                "experiments produced data. The report records why.", counts)
+    return ("warn",
+            "Research finished without running any experiment. "
+            "The report records why.", counts)
+
+
 def measured_facts_block(experiments: list[dict]) -> str:
     """Code-generated ground truth. Never model-written."""
     facts = [_experiment_facts(e) for e in experiments]
@@ -621,6 +649,15 @@ def measured_facts_block(experiments: list[dict]) -> str:
             reason = f.get("cannot_run_reason")
             lines.append(f"- **not tested** — {reason}" if reason
                          else "- not measurable on this machine")
+            # A refusal on its own is honest but useless. Where the
+            # other loop has a real knob for this, name it; where no
+            # knob exists anywhere, say that too.
+            if reason:
+                try:
+                    from arail.experiments.levers import handoff_line
+                    lines.append(f"- ➡️ {handoff_line(f['hypothesis'])}")
+                except Exception:
+                    pass
         mismatch = _hypothesis_subject_mismatch(f)
         if mismatch:
             lines.append(f"- ⚠️ **{mismatch}**")
@@ -1335,9 +1372,15 @@ class ResearcherAgent:
             except Exception:  # pragma: no cover
                 pass
 
-            activity_log.emit("researcher",
-                              "Research complete. Report generated.",
-                              "success", {"report_preview": report[:200], "progress": 1.0})
+            # Say what the run actually produced. "Research complete.
+            # Report generated." was emitted at success level even when
+            # every experiment came back cannot_run and the report held
+            # no findings at all — which is how a lab with a dead model
+            # looked identical to a lab doing science.
+            _level, _msg, _counts = completion_status(completed_experiments)
+            activity_log.emit("researcher", _msg, _level,
+                              {"report_preview": report[:200], "progress": 1.0,
+                               **_counts})
             self._status = "completed"
             self._set_swarm_lane_status("completed", current_task="Swarm synthesis complete", next_step=None)
             self._advance_workflow("Generated final report", "Research complete", None, progress=1.0)
