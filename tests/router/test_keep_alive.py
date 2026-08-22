@@ -2,8 +2,17 @@
 
 Sprint: 2026-08-11-two-slot-chat-models Part 3 rewrote _keep_alive from a
 plain env-only staticmethod into a per-model instance method — the
-resident (registry tier0) model now pins ("-1") by default; any other
-Ollama model keeps the old 2h. Every test here isolates the registry
+resident (registry tier0) model now pins by default; any other
+Ollama model keeps the old 2h.
+
+CORRECTED 2026-08-17: these tests originally asserted the wire value was
+the STRING "-1". That is exactly the value Ollama rejects — it parses a
+string keep_alive as a Go duration, and "-1" carries no unit, so every
+/api/chat call answered 400 {"error":"time: missing unit in duration
+\"-1\""} and the entire local model lane was dead. The pinned value is
+now the JSON number -1 (seconds; negative means keep loaded forever).
+The tests had encoded the implementation rather than what the server
+accepts, so they passed while the feature was completely broken. Every test here isolates the registry
 (tmp file + fresh singleton) so `_is_registry_tier0_model()` never reads
 or seeds a developer's real lab/data/model_registry.json.
 """
@@ -67,9 +76,13 @@ def test_empty_env_omits_keep_alive(backend, monkeypatch):
 
 
 def test_pin_forever_passthrough(backend, monkeypatch):
+    """An operator writing -1 means "forever"; it must reach the wire as
+    a number, never as the bare string Ollama refuses."""
     monkeypatch.setenv("ARAIL_OLLAMA_KEEP_ALIVE", "-1")
     backend.complete("hi", max_tokens=8)
-    assert backend._session.bodies[0]["keep_alive"] == "-1"
+    sent = backend._session.bodies[0]["keep_alive"]
+    assert sent == -1
+    assert not isinstance(sent, str)
 
 
 def test_explicit_env_wins_even_when_this_is_the_tier0_model(monkeypatch, tmp_path):
@@ -101,7 +114,8 @@ def test_tier0_model_pins_by_default(monkeypatch):
     be.model_name = "llama-ai-eng:latest"
     be._session = _CapturingSession()
     be.complete("hi", max_tokens=8)
-    assert be._session.bodies[0]["keep_alive"] == "-1"
+    sent = be._session.bodies[0]["keep_alive"]
+    assert sent == -1 and not isinstance(sent, str)
 
 
 def test_tier0_model_pins_even_when_bare_tag_matches_tagged_registry_entry(monkeypatch):
@@ -114,7 +128,8 @@ def test_tier0_model_pins_even_when_bare_tag_matches_tagged_registry_entry(monke
     be.model_name = "llama-ai-eng:latest"
     be._session = _CapturingSession()
     be.complete("hi", max_tokens=8)
-    assert be._session.bodies[0]["keep_alive"] == "-1"
+    sent = be._session.bodies[0]["keep_alive"]
+    assert sent == -1 and not isinstance(sent, str)
 
 
 def test_non_tier0_model_keeps_2h(monkeypatch):

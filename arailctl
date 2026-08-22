@@ -22,6 +22,7 @@
 #    wiki     ARAIL documentation-as-code: build | info | new <title>
 #    kb       QuKaiZen Karpathy LLM Wiki ops: status | compile | lint | query |
 #             search | ingest | index | where  (discoverable, no hardcoded paths)
+#    autoresearch  tuning-loop retention: prune branches | rotate bench logs
 #    help     show this message
 #
 #  `install`/`tier` are the canonical names for the refresh and feature-set
@@ -266,6 +267,7 @@ EOF
                     | search | ingest | index | where    (auto-discovers KB root)
     blueprint <op>  list | catalog | show | create | apply | destroy — Configuration as Code
     benchmark_models [opts]  measure model TPS for autoresearch routing (alias: benchmark, aerollm)
+    autoresearch <op>  tuning-loop retention: prune (branches) | rotate (bench logs)
     help            this message
 
 EOF
@@ -997,6 +999,38 @@ LOGSEOF
             exit 3
         fi
         say "doctor: OK"
+        ;;
+    autoresearch)
+        # Retention for what the tuning loop leaves behind. Both ops are
+        # dry-run by default; --apply opts into the write.
+        op="${1:-}"; shift || true
+        case "$op" in
+            prune|rotate) ;;
+            ""|help|-h|--help)
+                cat <<'EOF'
+Usage: ./arailctl autoresearch <command> [options]
+
+  prune    Delete old losing/superseded autoresearch/* branches.
+           Never touches wins, the branch you're on, the newest N, or
+           anything it cannot classify. Writes a recovery receipt with
+           each branch's SHA before deleting it.
+  rotate   Move the oldest records out of the bench logs into a sibling
+           archive, keeping the newest in place. Nothing is discarded.
+
+Both are dry-run by default — pass --apply to make the change.
+
+Common options: --apply  --dry-run  --json
+  prune:  --keep-recent N  --older-than-days N  --verbose
+  rotate: --max-lines N
+EOF
+                exit 0
+                ;;
+            *) die "autoresearch command must be one of: prune | rotate" ;;
+        esac
+        [[ -d .venv ]] || die "missing .venv — run ./arailctl setup"
+        # shellcheck disable=SC1091
+        source .venv/bin/activate
+        exec python -m arail.experiments.retention "$op" "$@"
         ;;
     db)
         # Declarative persistence: the spec tree in spec/ is the source of

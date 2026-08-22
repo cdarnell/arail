@@ -244,11 +244,18 @@ CSRF attack surface.
 ### 🔬 Autoresearch *(every tier)*
 
 **This is where you set the goal.** Tell the lab a measurable goal —
-*"make our chat responses land under 400 ms on my MacBook"* — and it
-runs an experiment loop: propose a change, measure, compare against the
-baseline, write up what it learned. The goal is lab-wide: once set here,
-the Dashboard mirrors it live. You watch from the dashboard and steer
-from the Autoresearch cockpit when the direction drifts.
+*"make our chat responses land under 400 ms on my MacBook"* — and the
+Researcher designs small experiments it can actually measure on your
+machine, runs them, and writes up what it found in the knowledge base.
+Every result is labeled by provenance (`measured` / `cannot_run` /
+`unmeasured`), so an experiment it couldn't run says so instead of
+inventing a number. The goal is lab-wide: once set here, the Dashboard
+mirrors it live.
+
+The Researcher writes only into the knowledge base — it never edits your
+source tree and makes no commits. The separate git-branch-per-experiment
+loop lives on the **Tuning** page (`maximus`); see
+[docs/tuning-loop.md](docs/tuning-loop.md).
 
 ### 📚 Knowledge Base *(every tier)*
 
@@ -264,8 +271,10 @@ Three built-in personalities:
 - **Buddy** — your lab partner. Observes, nudges, writes warm two-line summaries.
 - **SRE** — the crash watcher. Surfaces recurring errors so you don't miss a
   broken loop.
-- **Researcher** — the engine behind Autoresearch. Reads goals, writes code,
-  runs experiments, commits the winners.
+- **Researcher** — the engine behind Autoresearch. Reads goals, designs
+  small experiments, measures them on your machine, and reports what it
+  found to the knowledge base. It writes no code and makes no commits —
+  that's the Tuning loop.
 
 Use the Agent Forge, or add `lab/pkb/agents/<id>/AGENT.md` plus
 `lab/pkb/agents/<id>/<id>.py`; the loader discovers them on start.
