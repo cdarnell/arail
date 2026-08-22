@@ -92,8 +92,8 @@ Two tiers. Pick one; upgrade later.
 includes ~20 other models (Qwen, Gemma, Phi, DeepSeek-R1, etc.) you can
 browse and pull on demand. AirLLM is opt-in via `ARAIL_INSTALL_AIRLLM=1`.
 
-> **AeroLLM deep mode is Apple-Silicon-only today (CUDA in progress).**
-> The `maximus` deep-mode "2nd inference" runtime, [AeroLLM](https://github.com/cdarnell/qukaizen-aerollm)
+> **AeroLLM (renaming to QueueLLM) deep mode is Apple-Silicon-only today (CUDA in progress).**
+> The `maximus` deep-mode "2nd inference" runtime, [AeroLLM/QueueLLM](https://github.com/cdarnell/qukaizen-queuellm)
 > (Apache-2.0, now open source), runs on **MLX / Apple Silicon** only — the
 > published wheel is `macosx_arm64`. The **CUDA backend is in active
 > development** and not built yet, so on Linux/x86 `maximus` the deep runtime

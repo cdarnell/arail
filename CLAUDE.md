@@ -23,14 +23,19 @@ users are expected to fork, rename, and adapt.
 ARAIL is the umbrella project. Two sibling repos in `~/ProJects` hang
 off it:
 
-- **aerollm** (`~/ProJects/qukaizen-aerollm`) — Streaming inference runtime, a
-  product of ARAIL. Origin lives here in `research/aerollm/` (00 through
-  04 design docs) before it was extracted to its own repo. As of v1.0.0,
-  AeroLLM is the deep-mode backend for the `maximus` tier. CUDA hosts
-  fall back to AirLLM with a notice until AeroLLM's CUDA backend ships.
-  The README's Compute Source pivot in the Chat tab is the surface where
-  alternative backends slot in. See `aerollm/CLAUDE.md` for runtime
-  internals.
+- **aerollm** (`~/ProJects/qukaizen-aerollm`, GitHub repo now
+  `cdarnell/qukaizen-queuellm`) — Streaming inference runtime, a
+  product of ARAIL, **renaming to QueueLLM** (display name only so far —
+  the `aerollm-api` package, `aerollm`/`AERO_*` identifiers, and this
+  repo's own `aerollm = "aerollm-api>=1.0,<2.0"` dependency pin in
+  `pyproject.toml` are unchanged; see `~/ProJects/CLAUDE.md` § Naming
+  status for the full picture). Origin lives here in `research/aerollm/`
+  (00 through 04 design docs) before it was extracted to its own repo.
+  As of v1.0.0, AeroLLM/QueueLLM is the deep-mode backend for the
+  `maximus` tier. CUDA hosts fall back to AirLLM with a notice until its
+  CUDA backend ships. The README's Compute Source pivot in the Chat tab
+  is the surface where alternative backends slot in. See
+  `aerollm/CLAUDE.md` for runtime internals.
 - **qukaizen-nucleus** (`~/ProJects/qukaizen-nucleus`) — Nucleus, the
   Super Skill Distillation Pipeline. Independent today (its own pipeline, its own
   CLI also called `qkz`), but a planned future consumer of aeroLLM for
