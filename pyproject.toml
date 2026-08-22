@@ -246,7 +246,9 @@ coder_cpu    = "Qwen/Qwen2.5-Coder-3B-Instruct-GGUF"
 #   • RELEASE — otherwise the published wheel is pulled from the self-hosted
 #               index below (`./arailctl deep update`), public PyPI as fallback.
 #               Wheels are macOS-arm64-only (no Linux/CUDA build yet).
-# clone ref (source builds): git+https://github.com/cdarnell/qukaizen-aerollm@main
+# clone ref (source builds): git+https://github.com/cdarnell/qukaizen-queuellm@main
+# (repo renamed 2026-08-21, was qukaizen-aerollm; old URL still redirects.
+# the "aerollm" key/value below and the dependency pin are unchanged.)
 aerollm       = "aerollm-api>=1.0,<2.0"
 aerollm_index = "https://pypi.qukaizen.com/simple/"
 # BUNDLED — no sibling repo, no index credentials required. A checksummed

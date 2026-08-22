@@ -1232,6 +1232,17 @@ async def _startup():
                 f"Dream daemon failed to start: {type(e).__name__}: {e}",
                 "warn")
 
+    # Job daemon — the admin Scheduler section's clock. Same on/off
+    # convention as dream_daemon: LAB_SCHEDULER=off disables it.
+    if os.getenv("LAB_SCHEDULER", "on").lower() not in ("off", "0", "false", "no"):
+        try:
+            from arail.agents.job_daemon import job_daemon
+            job_daemon.start()
+        except Exception as e:  # noqa: BLE001
+            activity_log.emit("scheduler",
+                f"Job daemon failed to start: {type(e).__name__}: {e}",
+                "warn")
+
     # Boot security scan — hybrid mode only (LAB_MODE=airgapped stays default;
     # no involuntary outbound calls) AND behind the autochecks master switch
     # (pip-audit is a subprocess package probe — off unless the user opts in;
@@ -6156,6 +6167,26 @@ async def admin_security_run_scan():
     started_at = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     result = await _sc.run_and_persist(trigger="manual")
     return {"ok": True, "status": result, "started_at": started_at}
+
+
+# -- Scheduler endpoints (admin Scheduler section) -------------------------
+
+@app.get("/api/admin/scheduler/status")
+async def admin_scheduler_status():
+    """Daemon on/off, plus every registered job's schedule and last run."""
+    from arail.agents.job_daemon import job_daemon, list_jobs_status
+    return {"daemon_status": job_daemon.status, "jobs": list_jobs_status()}
+
+
+@app.post("/api/admin/scheduler/jobs/{job_id}/run")
+async def admin_scheduler_run_job(job_id: str):
+    """Run one registered job immediately. Same shape as security's run-scan."""
+    from arail.agents.job_daemon import run_job_now
+    result = await run_job_now(job_id)
+    if not result.get("ok"):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(result, status_code=404)
+    return result
 
 
 @app.get("/api/admin/security/run-scan/stream")
